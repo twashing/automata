@@ -4,8 +4,49 @@
             [clojure.spec.test.alpha :as st]))
 
 
-(defn + [a])
-(defn * [a])
+(defprotocol ParserCombinator
+  "Represents each possible type of parser combinator"
+  (advance2 [this automaton input]))
+
+(defrecord Plus [state]
+  ParserCombinator
+  (advance2 [_ automaton input]
+    :baz))
+
+(defrecord Star [state]
+  ParserCombinator
+  (advance2 [_ {:keys [states state run history] :as automaton} input]
+    (println automaton)
+    (println input)))
+
+(def automaton {:states states
+                :state :foo
+                :run []
+                :history [nil]})
+
+;; (advance2 star automaton :foo)
+
+
+(defrecord Scalar [state]
+  ParserCombinator
+  (advance2 [_ {:keys [states state run history] :as automaton} input]
+    :bar))
+
+
+(defn + [a] (->Plus a))
+(defn * [a] (->Star a))
+(defn scalar [a] (->Scalar a))
+
+(def plus (+ :foo))
+(def star (* :foo))
+(def states [(* :foo) (scalar :bar)])
+
+
+;; (advance2 star states :foo)
+;; What state are we in
+;; What are the possible transitions (identity, other)
+
+
 (defn ? [a])
 (defn bound [a])
 (defn and [a])
@@ -15,6 +56,12 @@
 ::any
 (defn accept-state? [a])
 
+
+;; (advance a :a)
+;; {:states (nil :a :b :c), :run (:a :b :c), :state :a, :history (nil)}
+
+
+;; ========
 
 (def is-automaton? map?)
 (def exists? (comp clojure.core/not nil?))

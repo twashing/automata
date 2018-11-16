@@ -25,6 +25,17 @@ a/any
 [1 (a/range 2 10)11]
 ```
 
+## TODO
+
+- tests
+- cycle between a > b > a
+- OR condition  a > b > c  |  a > c
+- AND condition  a > b > c  |  a > d > c
+- NOT condition  a > !b > c 
+- range
+- bound
+
+
 ## License
 
 Copyright © 2018 FIXME
