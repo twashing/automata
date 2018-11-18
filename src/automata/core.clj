@@ -47,10 +47,10 @@
 
   (slide-matcher [this input run]
 
-    (info "Star::arrved-at-state? /" (arrved-at-state? this input)
-          " / state /" this
-          " / next /" input
-          " / run /" run)
+    ;; (info "Star::arrved-at-state? /" (arrved-at-state? this input)
+    ;;       " / state /" this
+    ;;       " / next /" input
+    ;;       " / run /" run)
     (cond
       (start-state? run) (rest run)
       (arrved-at-state? this input) run
@@ -60,22 +60,26 @@
     (let [local-state (if (arrved-at-state? tst input)
                         this+state next+state)]
 
-      (trace (str "local-state /" (pr-str local-state)))
-      (trace (str "input /" input))
-      (trace (str "(= local-state input) /" (= local-state input)))
+      ;; (trace (str "local-state / " (pr-str local-state)))
+      ;; (trace (str "input / " input))
+      ;; (trace (str "(= local-state input) / " (= local-state input)))
 
       (cond
         (= ::empty input) ::noop
         (= local-state input) ::match
-        :else ::nomatch)))
+        :else ::noop
+        ;; :else ::nomatch
+        )))
 
   (transition [_ {:keys [states state run history] :as automaton} input transition]
-    (let [nxt (first run)
+    (let [_ matcher
+
+          nxt (first run)
           arrived? (arrved-at-state? state input)
           state' (if arrived? state nxt)
           run' (if arrived? run (rest run))]
 
-      (info "transition::arrved-at-state? /" arrived? " / state /" state " / next /" input)
+      ;; (info "transition::arrved-at-state? /" arrived? " / state /" state " / next /" input)
       (assoc automaton
              :state state'
              :run run'
@@ -84,10 +88,10 @@
 (defrecord Scalar [matcher]
   ParserCombinator
 
-  (slide-matcher [_ input run] run)
+  (slide-matcher [_ _ run] run)
 
-  (match [_ state input]
-    (if (= matcher input)
+  (match [{this+state :matcher :as tst} {next+state :matcher :as nst} input]
+    (if (= next+state input)
       ::match ::nomatch))
 
   (transition [_ {:keys [states state run history] :as automaton} input transition]
@@ -97,16 +101,6 @@
              :run (rest run)
              :history (concat history [{:state nxt :input input :transition transition}])))))
 
-
-;; [:a :b :c :d]
-;; [:a (a/+ :b) :c :d]
-;; [:a (a/* :b) :c :d]
-;; [:a (a/? :b) :c :d]
-;; [:a (a/bound 2 4 :b) :c :d]
-;; [:a (a/and :b :c) :d]
-;; [:a (a/or :b :c) :d]
-;; [:a (a/not :b) :c :d]
-;; [1 (a/range 2 10) 11]
 
 (defn + [a] (->Plus a))
 (defn * [a] (->Star a))
@@ -118,11 +112,6 @@
 (defn not [a])
 (defn range [a])
 (defn accept-state? [a])
-
-
-;; Initializing from start state, should determine state + run
-;; What state are we in
-;; What are the possible transitions (identity, other)
 
 
 (defn automaton [states]
@@ -155,13 +144,18 @@
   (let [real-run (handle-start-state run)
         state+matcher' (cond
                          (nil? state+matcher) (first run)
-                         (->> state+matcher :matcher (= input) not) (first run)
+                         ;; (->> state+matcher :matcher (= input) not) (first run)
                          :else state+matcher)
-        [matcher subsequent-matcher] (slide-matcher state+matcher' input real-run)
+        [next-matcher subsequent-matcher] (slide-matcher state+matcher' input real-run)
 
-        _ (println "state+matcher' /" state+matcher')
-        _ (println "matcher /" matcher)
-        result (match state+matcher' matcher input)]
+        ;; _ (println)
+        ;; _ (println "state+matcher' / " state+matcher')
+        ;; _ (println "middle matcher / " (->> state+matcher :matcher (= input)) " / input / " input " / run / " run)
+        ;; _ (println ">")
+        ;; _ (println "next-matcher / " next-matcher)
+        ;; _ (println "subsequent-matcher / " subsequent-matcher)
+
+        result (match state+matcher' next-matcher input)]
 
     (case result
       ::match (transition state+matcher' automaton input ::match)
@@ -194,7 +188,6 @@
   (-> b (advance :a))
   (-> b (advance :a) (advance :a))
   (-> b (advance :a) (advance :b))
-
   (-> b (advance :b))
 
   )

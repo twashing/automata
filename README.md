@@ -10,10 +10,6 @@ _This automaton consists of states (represented in the figure by circles) and tr
 ## Usage
 
 ```
-:a/begin
-:a/end
-a/any
-
 [:a :b :c :d]
 [:a (a/+ :b) :c :d]
 [:a (a/* :b) :c :d]
@@ -28,6 +24,9 @@ a/any
 ## TODO
 
 - tests
+  - Initializing from start state, should determine state + run
+  - What state are we in
+  - What are the possible transitions (identity, other)
 - cycle between a > b > a
 - OR condition  a > b > c  |  a > c
 - AND condition  a > b > c  |  a > d > c
