@@ -1,106 +1,102 @@
 (ns automata.core
   (:refer-clojure :exclude [+ * and or not range])
-  (:require [clojure.spec.alpha :as s]
+  (:require [clojure.tools.logging :refer [info] :as log]
+            [clojure.tools.trace :refer [trace]]
+            [clojure.spec.alpha :as s]
             [clojure.spec.test.alpha :as st]))
 
-
-(defprotocol ParserCombinator
-  "Represents each possible type of parser combinator"
-  (advance2 [this automaton input]))
-
-(defrecord Plus [state]
-  ParserCombinator
-  (advance2 [_ automaton input]
-    :baz))
-
-(defrecord Star [state]
-  ParserCombinator
-  (advance2 [_ {:keys [states state run history] :as automaton} input]
-    (println automaton)
-    (println input)))
-
-(def automaton {:states states
-                :state :foo
-                :run []
-                :history [nil]})
-
-;; (advance2 star automaton :foo)
-
-
-(defrecord Scalar [state]
-  ParserCombinator
-  (advance2 [_ {:keys [states state run history] :as automaton} input]
-    :bar))
-
-
-(defn + [a] (->Plus a))
-(defn * [a] (->Star a))
-(defn scalar [a] (->Scalar a))
-
-(def plus (+ :foo))
-(def star (* :foo))
-(def states [(* :foo) (scalar :bar)])
-
-
-;; (advance2 star states :foo)
-;; What state are we in
-;; What are the possible transitions (identity, other)
-
-
-(defn ? [a])
-(defn bound [a])
-(defn and [a])
-(defn or [a])
-(defn not [a])
-(defn range [a])
-::any
-(defn accept-state? [a])
-
-
-;; (advance a :a)
-;; {:states (nil :a :b :c), :run (:a :b :c), :state :a, :history (nil)}
-
-
-;; ========
+::empty
+::match
+::nomatch
+::noop
 
 (def is-automaton? map?)
 (def exists? (comp clojure.core/not nil?))
 
-
 (defn start-state? [automaton]
   (-> automaton first nil?))
 
-(defn automaton [states]
-  (let [run (concat [nil] states)]
-    {:states run
-     :run run
-     :state nil
-     :history []}))
+(defn handle-start-state [run]
+  (if (start-state? run)
+    (rest run) run))
 
-(defn transition [{:keys [states state run history] :as automaton}]
-  (let [[current nxt] run]
-    (assoc automaton
-           :state nxt
-           :run (rest run)
-           :history (concat history [current]))))
+(defn arrved-at-state? [{matcher :matcher} nxt]
+  (= matcher nxt))
 
-(defn advance [{:keys [states state run] :as automaton} input]
 
-  (let [current-state (first run)
-        allowed-transitions (-> run second list set)
-        allowed? (some allowed-transitions #{input})]
 
-    (if allowed?
-      (transition automaton)
+(defprotocol ParserCombinator
+  "Represents each possible type of parser combinator"
+
+  (slide-matcher [_ input run])
+  (match [this state input])
+  (transition [this automaton input transition]))
+
+(defrecord Plus [matcher]
+  ParserCombinator
+
+  (slide-matcher [_ input run])
+
+  (match [_ state input]
+    :baz)
+
+  (transition [_ automaton input transition]))
+
+(defrecord Star [matcher]
+  ParserCombinator
+
+  (slide-matcher [this input run]
+
+    (info "Star::arrved-at-state? /" (arrved-at-state? this input)
+          " / state /" this
+          " / next /" input
+          " / run /" run)
+    (cond
+      (start-state? run) (rest run)
+      (arrved-at-state? this input) run
+      :else run))
+
+  (match [{this+state :matcher :as tst} {next+state :matcher :as nst} input]
+    (let [local-state (if (arrved-at-state? tst input)
+                        this+state next+state)]
+
+      (trace (str "local-state /" (pr-str local-state)))
+      (trace (str "input /" input))
+      (trace (str "(= local-state input) /" (= local-state input)))
+
+      (cond
+        (= ::empty input) ::noop
+        (= local-state input) ::match
+        :else ::nomatch)))
+
+  (transition [_ {:keys [states state run history] :as automaton} input transition]
+    (let [nxt (first run)
+          arrived? (arrved-at-state? state input)
+          state' (if arrived? state nxt)
+          run' (if arrived? run (rest run))]
+
+      (info "transition::arrved-at-state? /" arrived? " / state /" state " / next /" input)
       (assoc automaton
-             :error {:type :invalid-trasition
-                     :input input
-                     :allowed-transitions allowed-transitions}))))
+             :state state'
+             :run run'
+             :history (concat history [{:state state' :input input :transition transition}])))))
 
-(s/fdef advance
-  :args (s/cat :automaton is-automaton?
-               :input exists?)
-  :ret is-automaton?)
+(defrecord Scalar [matcher]
+  ParserCombinator
+
+  (slide-matcher [_ input run] run)
+
+  (match [_ state input]
+    (if (= matcher input)
+      ::match ::nomatch))
+
+  (transition [_ {:keys [states state run history] :as automaton} input transition]
+    (let [nxt (first run)]
+      (assoc automaton
+             :state nxt
+             :run (rest run)
+             :history (concat history [{:state nxt :input input :transition transition}])))))
+
 
 ;; [:a :b :c :d]
 ;; [:a (a/+ :b) :c :d]
@@ -112,28 +108,93 @@
 ;; [:a (a/not :b) :c :d]
 ;; [1 (a/range 2 10) 11]
 
+(defn + [a] (->Plus a))
+(defn * [a] (->Star a))
+(defn scalar [a] (->Scalar a))
+(defn ? [a])
+(defn bound [a])
+(defn and [a])
+(defn or [a])
+(defn not [a])
+(defn range [a])
+(defn accept-state? [a])
 
-(st/instrument)
+
+;; Initializing from start state, should determine state + run
+;; What state are we in
+;; What are the possible transitions (identity, other)
+
+
+(defn automaton [states]
+  (let [decorate-fn (fn [a]
+                      (if (instance? automata.core.ParserCombinator a)
+                        a
+                        (scalar a)))
+        states-decorated (map decorate-fn states)
+        run states-decorated]
+    {:states run
+     :run run
+     :state nil
+     :history [nil]}))
+
+
+#_(s/fdef advance
+  :args (s/cat :automaton is-automaton?
+               :input exists?)
+  :ret is-automaton?)
+
+#_(st/instrument)
+
+
+(defn advance [{states :states
+                state+matcher :state
+                run :run
+                history :history :as automaton}
+               input]
+
+  (let [real-run (handle-start-state run)
+        state+matcher' (cond
+                         (nil? state+matcher) (first run)
+                         (->> state+matcher :matcher (= input) not) (first run)
+                         :else state+matcher)
+        [matcher subsequent-matcher] (slide-matcher state+matcher' input real-run)
+
+        _ (println "state+matcher' /" state+matcher')
+        _ (println "matcher /" matcher)
+        result (match state+matcher' matcher input)]
+
+    (case result
+      ::match (transition state+matcher' automaton input ::match)
+      ::nomatch (assoc automaton
+                       :error {:type :invalid-trasition
+                               :input input
+                               :matcher state+matcher'})
+      (recur (transition subsequent-matcher automaton input ::noop) input))))
 
 
 (comment
 
+
+  (def a (automaton [:a :b :c :d]))
+
   (advance a :a)
-  {:states (nil :a :b :c), :run (:a :b :c), :state :a, :history (nil)}
+  (advance a :b) ;; error
+  (-> a (advance :a) (advance :a)) ;; error
+  (-> a (advance :a) (advance :b)))
 
-  (advance a :b)
-  {:states (nil :a :b :c),
-   :run (nil :a :b :c),
-   :state nil,
-   :history [],
-   :error {:type :invalid-trasition, :input :b, :allowed-transitions #{:a}}}
 
-  (-> a (advance :a) (advance :a))
-  {:states (nil :a :b :c),
-   :run (:a :b :c),
-   :state :a,
-   :history (nil),
-   :error {:type :invalid-trasition, :input :a, :allowed-transitions #{:b}}}
+(comment
 
-  (-> a (advance :a) (advance :b))
-  {:states (nil :a :b :c), :run (:b :c), :state :b, :history (nil :a)})
+  (do
+    (def b (automaton [(* :a) :b :c :d]))
+    (def c (automaton [:a (* :b) :c :d]))
+    (def d (automaton [(* :a) (* :b) :c :d])))
+
+
+  (-> b (advance :a))
+  (-> b (advance :a) (advance :a))
+  (-> b (advance :a) (advance :b))
+
+  (-> b (advance :b))
+
+  )
