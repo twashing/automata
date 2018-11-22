@@ -37,7 +37,7 @@
               :run '(#automata.core.Scalar{:matcher :b} #automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
               :state #automata.core.Scalar{:matcher :a}
               :history '(nil {:state #automata.core.Scalar{:matcher :a} :input :a :transition :automata.core/match})
-              :error {:type :invalid-trasition :input :a :matcher #automata.core.Scalar{:matcher :a}}})))))
+              :error {:type :invalid-trasition :input :a :matcher #automata.core.Scalar{:matcher :b}}})))))
 
 (deftest test-star-basic
 
@@ -102,14 +102,20 @@
              {:states '(#automata.core.Scalar{:matcher :a} #automata.core.Star{:matcher :b} #automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
               :run '(#automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
               :state #automata.core.Star{:matcher :b}
-              :history
-              '(nil
-                 {:state #automata.core.Scalar{:matcher :a} :input :a :transition :automata.core/match}
-                 {:state #automata.core.Star{:matcher :b} :input :b :transition :automata.core/match}
-                 {:state #automata.core.Star{:matcher :b} :input :b :transition :automata.core/match})})))
+              :history '(nil
+                          {:state #automata.core.Scalar{:matcher :a} :input :a :transition :automata.core/match}
+                          {:state #automata.core.Star{:matcher :b} :input :b :transition :automata.core/match}
+                          {:state #automata.core.Star{:matcher :b} :input :b :transition :automata.core/match})})))
 
-    ;; TODO fix
-    ;; (-> c (advance :a) (advance :c))
+    (testing "scalar skip star scalar"
+      (is (= (-> c (advance :a) (advance :c))
+             {:states '(#automata.core.Scalar{:matcher :a} #automata.core.Star{:matcher :b} #automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
+              :run '(#automata.core.Scalar{:matcher :d})
+              :state #automata.core.Scalar{:matcher :c}
+              :history '(nil
+                          {:state #automata.core.Scalar{:matcher :a} :input :a :transition :automata.core/match}
+                          {:state #automata.core.Star{:matcher :b} :input :c :transition :automata.core/noop}
+                          {:state #automata.core.Scalar{:matcher :c} :input :c :transition :automata.core/match})})))
 
     (testing "pre-star matching error"
 
@@ -185,8 +191,14 @@
               :history '(nil
                           {:state #automata.core.Star{:matcher :a} :input :c :transition :automata.core/noop}
                           {:state #automata.core.Star{:matcher :b} :input :c :transition :automata.core/noop}
-                          {:state #automata.core.Scalar{:matcher :c} :input :c :transition :automata.core/match})}))))
+                          {:state #automata.core.Scalar{:matcher :c} :input :c :transition :automata.core/match})})))
 
-  ;; TODO fix
-  ;; (-> d (advance :d)) ;; error
-  )
+    (testing "error match after skipping many stars"
+      (is (= (-> d (advance :d))
+             {:states '(#automata.core.Star{:matcher :a} #automata.core.Star{:matcher :b} #automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
+              :run '(#automata.core.Scalar{:matcher :c} #automata.core.Scalar{:matcher :d})
+              :state #automata.core.Star{:matcher :b}
+              :history '(nil
+                          {:state #automata.core.Star{:matcher :a} :input :d :transition :automata.core/noop}
+                          {:state #automata.core.Star{:matcher :b} :input :d :transition :automata.core/noop})
+              :error {:type :invalid-trasition :input :d :matcher #automata.core.Scalar{:matcher :c}}})))))

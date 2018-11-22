@@ -24,10 +24,10 @@
   (= matcher nxt))
 
 
-
 (defprotocol ParserCombinator
   "Represents each possible type of parser combinator"
 
+  (get-matcher [_ automaton input])
   (slide-matcher [_ input run])
   (match [this state input])
   (transition [this automaton input transition]))
@@ -35,15 +35,19 @@
 (defrecord Plus [matcher]
   ParserCombinator
 
+  (get-matcher [_ automaton input])
   (slide-matcher [_ input run])
-
-  (match [_ state input]
-    :baz)
-
+  (match [_ state input])
   (transition [_ automaton input transition]))
 
 (defrecord Star [matcher]
   ParserCombinator
+
+  (get-matcher [_ {state+matcher :state
+                   run :run} input]
+    (if (arrved-at-state? {:matcher matcher} input)
+      state+matcher
+      (first run)))
 
   (slide-matcher [this input run]
 
@@ -67,14 +71,10 @@
       (cond
         (= ::empty input) ::noop
         (= local-state input) ::match
-        :else ::noop
-        ;; :else ::nomatch
-        )))
+        :else ::noop)))
 
   (transition [_ {:keys [states state run history] :as automaton} input transition]
-    (let [_ matcher
-
-          nxt (first run)
+    (let [nxt (first run)
           arrived? (arrved-at-state? state input)
           state' (if arrived? state nxt)
           run' (if arrived? run (rest run))]
@@ -88,10 +88,13 @@
 (defrecord Scalar [matcher]
   ParserCombinator
 
-  (slide-matcher [_ _ run] run)
+  (get-matcher [_ {run :run} _]
+    (first run))
+
+  (slide-matcher [_ _ run] (rest run))
 
   (match [{this+state :matcher :as tst} {next+state :matcher :as nst} input]
-    (if (= next+state input)
+    (if (= this+state input)
       ::match ::nomatch))
 
   (transition [_ {:keys [states state run history] :as automaton} input transition]
@@ -134,28 +137,26 @@
 
 #_(st/instrument)
 
-
 (defn advance [{states :states
                 state+matcher :state
                 run :run
                 history :history :as automaton}
                input]
 
-  (let [real-run (handle-start-state run)
-        state+matcher' (cond
-                         (nil? state+matcher) (first run)
-                         ;; (->> state+matcher :matcher (= input) not) (first run)
-                         :else state+matcher)
-        [next-matcher subsequent-matcher] (slide-matcher state+matcher' input real-run)
+  (let [run' (handle-start-state run)
+        state+matcher' (if (nil? state+matcher)
+                         (first run)
+                         (get-matcher state+matcher automaton input))
+        [next-matcher subsequent-matcher] (slide-matcher state+matcher' input run')
+        result (match state+matcher' next-matcher input)
 
         ;; _ (println)
         ;; _ (println "state+matcher' / " state+matcher')
-        ;; _ (println "middle matcher / " (->> state+matcher :matcher (= input)) " / input / " input " / run / " run)
-        ;; _ (println ">")
+        ;; _ (println "  > match / " result " > input / " input " > run / " run)
+        ;; _ (println "<>")
         ;; _ (println "next-matcher / " next-matcher)
         ;; _ (println "subsequent-matcher / " subsequent-matcher)
-
-        result (match state+matcher' next-matcher input)]
+        ]
 
     (case result
       ::match (transition state+matcher' automaton input ::match)
@@ -164,51 +165,3 @@
                                :input input
                                :matcher state+matcher'})
       (recur (transition subsequent-matcher automaton input ::noop) input))))
-
-
-(comment
-
-
-  (def a (automaton [:a :b :c :d]))
-
-  (advance a :a)
-  (advance a :b) ;; error
-  (-> a (advance :a) (advance :a)) ;; error
-  (-> a (advance :a) (advance :b)))
-
-(comment
-
-  (def b (automaton [(* :a) :b :c :d]))
-
-  (-> b (advance :a))
-  (-> b (advance :a) (advance :a))
-  (-> b (advance :a) (advance :b))
-  (-> b (advance :b)))
-
-(comment
-
-  (def c (automaton [:a (* :b) :c :d]))
-
-  (-> c (advance :a))
-  (-> c (advance :a) (advance :b) (advance :b))
-
-
-  ;; TODO fix
-  (-> c (advance :a) (advance :c))
-  (-> c (advance :b))
-  (-> c (advance :d)))
-
-(comment
-
-  (def d (automaton [(* :a) (* :b) :c :d]))
-
-  (-> d (advance :a))
-  (-> d (advance :a) (advance :a))
-  (-> d (advance :a) (advance :b))
-  (-> d (advance :b) (advance :b))
-  (-> d (advance :b) (advance :b) (advance :c))
-  (-> d (advance :c))
-
-  ;; TODO fix
-  (-> d (advance :d)) ;; error
-  )
