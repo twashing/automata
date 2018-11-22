@@ -1,10 +1,18 @@
 # Automata
 
-A simple automata library. A good breakdown of automata theory is on [Wikipedia](https://en.wikipedia.org/wiki/Automata_theory). Particularly, I'm interested in finite state machines.
+A simple automata library, shamelessly cribbed from Zach Tellman's [ztellman/automat](https://github.com/ztellman/automat). A good breakdown of automata theory is on [Wikipedia](https://en.wikipedia.org/wiki/Automata_theory). Particularly, I'm interested in finite state machines.
 
 ![A simple finite state machine](https://upload.wikimedia.org/wikipedia/commons/thumb/9/9d/DFAexample.svg/274px-DFAexample.svg.png)
 
 _This automaton consists of states (represented in the figure by circles) and transitions (represented by arrows). As the automaton sees a symbol of input, it makes a transition (or jump) to another state, according to its transition function, which takes the current state and the recent symbol as its inputs._
+
+```
+[automata "0.1.0"]
+```
+
+### NOTE
+
+Only `scalar` and `star` types are implemented. This is still pre-alpha software.
 
 
 ## Usage
@@ -59,7 +67,7 @@ Advancing through the states is done like so. Starting With regular scalars.
     :error {:type :invalid-trasition :input :a :matcher {:matcher :b}}}
 ```
 
-Here, scalars mied with stars.
+Here, scalars mixed with stars.
 ```
 => (def b (automaton [(* :a) :b :c :d]))
 
@@ -135,6 +143,7 @@ Multiple stars.
 - NOT condition  a > !b > c 
 - range
 - bound
+- nested automata
 
 
 ## License
