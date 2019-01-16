@@ -136,6 +136,10 @@ Multiple stars.
 
 ## TODO
 
+- + combinator
+- grouping
+- variables
+
 - remaining combinators
 - cycle between a > b > a
 - OR condition  a > b > c  |  a > c
