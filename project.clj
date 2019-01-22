@@ -5,9 +5,11 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
 
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [org.clojure/test.check "0.10.0-alpha3"]]
+                 [org.clojure/core.match "0.3.0-alpha5"]
+                 [instaparse "1.4.10"]]
 
-  :profiles {:dev {:dependencies [[org.clojure/tools.trace "0.7.9"]]
+  :profiles {:dev {:dependencies [[org.clojure/tools.trace "0.7.9"]
+                                  [org.clojure/test.check "0.10.0-alpha3"]]
                    :source-paths ["src" "workbench"]}}
 
   :plugins [[lein-pprint "1.2.0"]]

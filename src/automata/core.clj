@@ -28,8 +28,8 @@
 
   (get-matcher [_ automaton input])
   (slide-matcher [_ input run])
-  (match [this state input])
-  (transition [this automaton input transition]))
+  (match [_ state input])
+  (transition [_ automaton input transition]))
 
 (defrecord Plus [matcher]
   ParserCombinator
@@ -143,10 +143,12 @@
 (defn + [a] (->Plus a))
 (defn * [a] (->Star a))
 (defn scalar [a] (->Scalar a))
-(defn ? [a])
+
 (defn bound [a])
-(defn and [a])
 (defn or [a])
+
+(defn ? [a])
+(defn and [a])
 (defn not [a])
 (defn range [a])
 (defn accept-state? [a])
@@ -265,3 +267,29 @@
 
   ;; Should FAIL
   (advance c :c))
+
+(comment
+
+
+  ;; track count of matches; indicate whether there's currently an FSM match
+
+
+  ;; implement lists + union
+  [[:a :b] [:a :c]]
+
+  ;; accepts i. scalars ii. lists or iii. combinators
+  (or :z :x :c :v)
+  (or [:a :b] [:a :c])
+  (or (* :a) (+ :s))
+
+  ;; accepts a i. scalar ii. list or iii. combinator
+  ;;   track amount of times something occurs (refactor existing code)
+  ;;   implement nesting
+  (bound :a 2 3)
+  (bound [:a :c] 2 3)
+  (bound (or :z :x :c :v) 2 3)
+
+
+  (def z (automaton [(bound (or :z :x :c :v) 2 3)]))
+
+  )
