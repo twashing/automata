@@ -59,19 +59,45 @@
 (defmulti transition-common (fn [dispatch _ _] dispatch))
 
 (defmethod transition-common :this [_ automaton input]
-  (assoc automaton :history (-> automaton :history (concat [input]))))
+  (let [history (:history automaton)
+        last-index (-> history count (- 1))
+        l (last history)]
+
+    (if-not (empty? l)
+
+      (assoc automaton :history (as-> automaton a
+                                  (:history a)
+                                  (into [] a)
+                                  (update a last-index #(concat % [input]))))
+      (assoc automaton :history (-> automaton :history (concat [[input]]))))))
 
 (defmethod transition-common :next [_ automaton input]
-  (-> (transition-common :this automaton input)
-      (assoc :position (-> automaton :position inc))))
+  (assoc automaton
+         :history (-> automaton :history (concat [[input]]))
+         :position (-> automaton :position inc)))
+
+(defmethod transition-common :increment-position [_ automaton input]
+  (assoc automaton :position (-> automaton :position inc)))
 
 (defmethod transition-common :skip [_ automaton input]
-  (assoc automaton :position (-> automaton :position (clojure.core/+ 2))))
-
-(defn transition-error [automaton input]
   (assoc automaton
-         :error {:type :invalid-transition
+         :history (-> automaton :history (concat [[input]]))
+         :position (-> automaton :position (clojure.core/+ 2))))
+
+(defmulti transition-error (fn [error-type _ _] error-type))
+
+(defmethod transition-error :invalid-transition
+  [error-type automaton input]
+  (assoc automaton
+         :error {:type error-type
                  :input input}))
+
+(defmethod transition-error :input-out-of-bounds
+  [error-type automaton input]
+  (as-> automaton a
+    (assoc a :error {:type error-type
+                     :input input})
+    (transition-common :this a input)))
 
 (defn start-state? [automaton]
   (-> automaton :state :START))
@@ -84,9 +110,10 @@
 (defrecord Scalar [matcher]
   ParserCombinator
   (transition [_ automaton input]
-    (if (= input (peek-next-state automaton))
-      (transition-common :next automaton input)
-      (transition-error automaton input)))
+    (let [automaton-error-free (dissoc automaton :error)]
+      (if (= input (peek-next-state automaton-error-free))
+        (transition-common :next automaton-error-free input)
+        (transition-error :invalid-transition automaton-error-free input))))
   (match [_ state input]))
 
 (defrecord Plus [matcher]
@@ -95,15 +122,17 @@
 
   (transition [_ automaton input]
 
-    (cond
+    (let [automaton-error-free (dissoc automaton :error)]
 
-      (= input (->state automaton))
-      (transition-common :this automaton input)
+      (cond
 
-      (= input (peek-next-state automaton))
-      (transition-common :next automaton input)
+        (= input (peek-next-state automaton-error-free))
+        (transition-common :next automaton-error-free input)
 
-      :else (transition-error automaton input)))
+        (= input (->state automaton-error-free))
+        (transition-common :this automaton-error-free input)
+
+        :else (transition-error :invalid-transition automaton-error-free input))))
 
   (match [_ state input]))
 
@@ -113,25 +142,81 @@
 
   (transition [_ automaton input]
 
-    (cond
+    (let [automaton-error-free (dissoc automaton :error)]
 
-      (= input (->state automaton))
-      (transition-common :this automaton input)
+      (cond
 
-      (= input (peek-next-state automaton))
-      (transition-common :next automaton input)
+        (= input (->state automaton-error-free))
+        (transition-common :this automaton-error-free input)
 
-      (= input (peek-nth-state automaton 2))
-      (transition-common :skip automaton input)
+        (= input (peek-next-state automaton-error-free))
+        (transition-common :next automaton-error-free input)
 
-      :else (transition-error automaton input)))
+        (= input (peek-nth-state automaton-error-free 2))
+        (transition-common :skip automaton-error-free input)
+
+        :else (transition-error :invalid-transition automaton-error-free input))))
 
   (match [_ state input]))
 
-(defrecord Bound [matcher]
+(defrecord Bound [matcher x y]
+
   ParserCombinator
-  (transition [_ automaton input])
+
+  (transition [_ automaton input]
+
+    (let [automaton-error-free (dissoc automaton :error)
+          transition-proposition (transition-common :this automaton-error-free input)
+          {:keys [position history]} (trace transition-proposition)
+          history-at-position (if (empty? history)
+                                []
+                                (last history))
+          size-at-position (count history-at-position)]
+
+      (m/match [transition-proposition size-at-position]
+
+               ;; BEFORE BOUNDS
+               [(_ :guard #(= input (peek-next-state %)))
+                (_ :guard #(< % x))]
+               (as-> automaton-error-free a
+                 (transition-error :input-out-of-bounds a input)
+                 (transition-common :increment-position a input))
+
+               [(_ :guard #(= input (->state %)))
+                (_ :guard #(< % x))]
+               (transition-error :input-out-of-bounds automaton-error-free input)
+
+               ;; WITHIN BOUNDS
+               [(_ :guard #(= input (->state %)))
+                (_ :guard #(clojure.core/and (>= % x)
+                                (<= % y)))]
+               transition-proposition
+
+               :else (transition-error :invalid-transition automaton-error-free input))))
   (match [_ state input]))
+
+(comment
+
+  (def e (automaton [(bound :a 2 3) :b :c :d]))
+
+  (advance e :a) ;; FAIL
+
+  (-> e
+      (advance :a)
+      (advance :a))
+
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a))
+
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a)
+      (advance :a)) ;; FAIL
+
+  )
 
 (defrecord Or [matcher]
   ParserCombinator
@@ -149,7 +234,7 @@
 (defn + [a] (->Plus a))
 (defn * [a] (->Star a))
 (defn scalar [a] (->Scalar a))
-(defn bound [a] (->Bound a))
+(defn bound [a x y] (->Bound a x y))
 (defn or [a] (->Or a))
 
 (defn advance [automaton input]
@@ -224,9 +309,7 @@
 
 
   ;; D
-  (do
-    (def d (automaton [(+ :a) :b :c :d]))
-    (def d1 (advance d :a)))
+  (def d (automaton [(+ :a) :b :c :d]))
 
   (advance d :a)
   (advance d :b) ;; FAIL
@@ -246,7 +329,11 @@
       (advance :c))
 
 
-  (automaton [(bound :a 2 3)])
+  ;; E
+  (def e (automaton [(bound :a 2 3) :b :c :d]))
+
+
+
   (automaton [(or :z :x :c :v)])
 
 
