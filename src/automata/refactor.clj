@@ -5,29 +5,6 @@
             [instaparse.core :as insta]))
 
 
-;; scalar (literal)
-;; list (FSM)
-;; combinator
-;;
-;; - track count
-;;   ? is within bound
-
-;; - track position
-;;   ! at a match, return position
-
-;; - advance
-;;   ? are we at start of FSM
-;;   ! transition to subsequent matcher
-
-;; ParserCombinator
-;;   disambiguate between i. the matcher and ii. current state
-;;
-;; Star
-;;   cannot have same stars next to each other
-;;
-;; Plus
-;;   cannot have same stars next to each other
-
 (defn position->state [a position]
   (-> a :states (nth position)))
 
@@ -84,6 +61,7 @@
          :history (-> automaton :history (concat [[input]]))
          :position (-> automaton :position (clojure.core/+ 2))))
 
+
 (defmulti transition-error (fn [error-type _ _] error-type))
 
 (defmethod transition-error :invalid-transition
@@ -99,13 +77,12 @@
                      :input input})
     (transition-common :this a input)))
 
-(defn start-state? [automaton]
+#_(defn start-state? [automaton]
   (-> automaton :state :START))
 
 
 (defprotocol ParserCombinator
-  (transition [_ automaton input])
-  (match [_ state input]))
+  (transition [_ automaton input]))
 
 (defrecord Scalar [matcher]
   ParserCombinator
@@ -113,8 +90,7 @@
     (let [automaton-error-free (dissoc automaton :error)]
       (if (= input (peek-next-state automaton-error-free))
         (transition-common :next automaton-error-free input)
-        (transition-error :invalid-transition automaton-error-free input))))
-  (match [_ state input]))
+        (transition-error :invalid-transition automaton-error-free input)))))
 
 (defrecord Plus [matcher]
 
@@ -132,9 +108,7 @@
         (= input (->state automaton-error-free))
         (transition-common :this automaton-error-free input)
 
-        :else (transition-error :invalid-transition automaton-error-free input))))
-
-  (match [_ state input]))
+        :else (transition-error :invalid-transition automaton-error-free input)))))
 
 (defrecord Star [matcher]
 
@@ -155,9 +129,7 @@
         (= input (peek-nth-state automaton-error-free 2))
         (transition-common :skip automaton-error-free input)
 
-        :else (transition-error :invalid-transition automaton-error-free input))))
-
-  (match [_ state input]))
+        :else (transition-error :invalid-transition automaton-error-free input)))))
 
 (defrecord Bound [matcher x y]
 
@@ -193,55 +165,7 @@
                [(_ :guard #(= (peek-nth-state % (clojure.core/+ 2 position)) input)) _]
                (transition-common :skip automaton-error-free input)
 
-               :else (transition-error :invalid-transition automaton-error-free input))))
-  (match [_ state input]))
-
-(comment
-
-  ;; F
-  (def f (automaton [(bound :a 1 2) :b :c :d]))
-
-  (advance f :a)
-
-  (-> f
-      (advance :a)
-      (advance :a))
-
-  (-> f
-      (advance :a)
-      (advance :a)
-      (advance :b))
-
-  ;; FAIL
-  (-> f
-      (advance :a)
-      (advance :a)
-      (advance :a))
-
-  ;; FF
-  (def ff (automaton [(bound :a 0 1) :b :c :d]))
-
-  (advance ff :a)
-  (advance ff :b)
-
-  ;; FAIL
-  (-> ff
-      (advance :a)
-      (advance :a))
-
-
-  ;;; FFF
-  (def fff (automaton [(? :a) :b :c :d]))
-
-  (advance fff :a)
-  (advance fff :b)
-
-  ;; FAIL
-  (-> fff
-      (advance :a)
-      (advance :a))
-
-  )
+               :else (transition-error :invalid-transition automaton-error-free input)))))
 
 (defrecord Or [matcher]
 
@@ -257,10 +181,17 @@
             (some next-state [input]))
 
         (transition-common :next automaton-error-free input)
-        (transition-error :invalid-transition automaton-error-free input))))
+        (transition-error :invalid-transition automaton-error-free input)))))
 
-  (match [_ state input]))
 
+;; ParserCombinator
+;;   disambiguate between i. the matcher and ii. current state
+;;
+;; Star
+;;   cannot have same stars next to each other
+;;
+;; Plus
+;;   cannot have same stars next to each other
 
 ;; :state nil - means start state
 ;; :state (<states>) - means end state
@@ -311,7 +242,7 @@
     (-> {:states states-decorated}
         (assoc :position 0 :history []))))
 
-(comment
+(comment ;; SCALAR, STAR, PLUS
 
   ;; A
   (def a (automaton [:a :b :c :d]))
@@ -367,8 +298,9 @@
       (advance :b)
       (advance :c)))
 
-(comment
+(comment ;; BOUND
 
+  ;; E
   (def e (automaton [(bound :a 2 3) :b :c :d]))
 
   (advance e :a) ;; FAIL
@@ -387,16 +319,60 @@
       (advance :a)
       (advance :a)
       (advance :a)
-      (advance :a)))
+      (advance :a))
 
 
+  ;; F
+  (def f (automaton [(bound :a 1 2) :b :c :d]))
 
-(comment
+  (advance f :a)
+
+  (-> f
+      (advance :a)
+      (advance :a))
+
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :b))
+
+  ;; FAIL
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :a))
+
+
+  ;; FF
+  (def ff (automaton [(bound :a 0 1) :b :c :d]))
+
+  (advance ff :a)
+  (advance ff :b)
+
+  ;; FAIL
+  (-> ff
+      (advance :a)
+      (advance :a))
+
+
+  ;;; FFF
+  (def fff (automaton [(? :a) :b :c :d]))
+
+  (advance fff :a)
+  (advance fff :b)
+
+  ;; FAIL
+  (-> fff
+      (advance :a)
+      (advance :a))
+
+  )
+
+(comment ;; OR
 
   (def g (automaton [(or :z :x :c :v) :b :c]))
 
   (advance g :z)
-
   (advance g :c)
 
   (-> g
@@ -406,12 +382,20 @@
   (advance g :b) ;; FAIL
   )
 
-(comment
+(comment ;; NESTING
 
   ;; (or [:a :b] [:a :c])
 
-  ;; (def h (automaton [(* (or :a :b :c)) :z :x]))
-  (def h (automaton [(or :a :b :c) :z :x]))
+
+  ;; [:a :b] ;; nested scalar
+
+  (* (or :a :b :c)) ;; combinator / combinator
+  (* [:a :b]) ;; combinator / automata
+  [[:a :b] [:a :c]] ;; automata > automata
+
+
+  ;; H
+  (def h (automaton [(* (or :a :b :c)) :z :x]))
 
 
   (advance h :a)
