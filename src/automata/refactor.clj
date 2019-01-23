@@ -166,7 +166,9 @@
   (transition [_ automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          transition-proposition (transition-common :this automaton-error-free input)
+          transition-proposition (if (= (peek-next-state automaton-error-free) input)
+                                   (transition-common :next automaton-error-free input)
+                                   (transition-common :this automaton-error-free input))
           {:keys [position history]} transition-proposition
           history-at-position (if (empty? history)
                                 []
@@ -176,24 +178,70 @@
       (m/match [transition-proposition size-at-position]
 
                ;; BEFORE BOUNDS
-               [(_ :guard #(= input (peek-next-state %)))
-                (_ :guard #(< % x))]
-               (as-> automaton-error-free a
-                 (transition-error :input-out-of-bounds a input)
-                 (transition-common :increment-position a input))
-
                [(_ :guard #(= input (->state %)))
                 (_ :guard #(< % x))]
                (transition-error :input-out-of-bounds automaton-error-free input)
 
                ;; WITHIN BOUNDS
                [(_ :guard #(= input (->state %)))
-                (_ :guard #(clojure.core/and (>= % x)
-                                (<= % y)))]
+                (_ :guard #(clojure.core/and
+                             (>= % x)
+                             (<= % y)))]
                transition-proposition
+
+               ;; LOOKAHEAD
+               [(_ :guard #(= (peek-nth-state % (clojure.core/+ 2 position)) input)) _]
+               (transition-common :skip automaton-error-free input)
 
                :else (transition-error :invalid-transition automaton-error-free input))))
   (match [_ state input]))
+
+(comment
+
+  ;; F
+  (def f (automaton [(bound :a 1 2) :b :c :d]))
+
+  (advance f :a)
+
+  (-> f
+      (advance :a)
+      (advance :a))
+
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :b))
+
+  ;; FAIL
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :a))
+
+  ;; FF
+  (def ff (automaton [(bound :a 0 1) :b :c :d]))
+
+  (advance ff :a)
+  (advance ff :b)
+
+  ;; FAIL
+  (-> ff
+      (advance :a)
+      (advance :a))
+
+
+  ;;; FFF
+  (def fff (automaton [(? :a) :b :c :d]))
+
+  (advance fff :a)
+  (advance fff :b)
+
+  ;; FAIL
+  (-> fff
+      (advance :a)
+      (advance :a))
+
+  )
 
 (defrecord Or [matcher]
 
@@ -212,22 +260,6 @@
         (transition-error :invalid-transition automaton-error-free input))))
 
   (match [_ state input]))
-
-
-(comment
-
-  (def g (automaton [(or :z :x :c :v) :b :c]))
-
-  (advance g :z)
-
-  (advance g :c)
-
-  (-> g
-      (advance :z)
-      (advance :z)) ;; FAIL
-
-  (advance g :b) ;; FAIL
-  )
 
 
 ;; :state nil - means start state
@@ -357,28 +389,36 @@
       (advance :a)
       (advance :a)))
 
-#_(comment
 
-  (def f (automaton [(? :a) :b :c :d]))
-
-  (advance f :a)
-
-  ;; FAIL
-  (-> f
-      (advance :a)
-      (advance :a)))
 
 (comment
 
+  (def g (automaton [(or :z :x :c :v) :b :c]))
 
-  (automaton [(or :z :x :c :v)])
+  (advance g :z)
+
+  (advance g :c)
+
+  (-> g
+      (advance :z)
+      (advance :z)) ;; FAIL
+
+  (advance g :b) ;; FAIL
+  )
+
+(comment
+
+  ;; (or [:a :b] [:a :c])
+
+  ;; (def h (automaton [(* (or :a :b :c)) :z :x]))
+  (def h (automaton [(or :a :b :c) :z :x]))
 
 
-  (or [:a :b] [:a :c])
-  (or [:a :b] [:a :c])
+  (advance h :a)
+  (advance h :b)
+  (advance h :c)
+
 
   (+ (or :a :b :c))
-  (* (or :a :b :c))
   (bound (or :a :b :c) 2 3)
-
   (+ (or [:a :b] [:a :c])))
