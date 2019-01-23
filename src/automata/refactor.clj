@@ -167,7 +167,7 @@
 
     (let [automaton-error-free (dissoc automaton :error)
           transition-proposition (transition-common :this automaton-error-free input)
-          {:keys [position history]} (trace transition-proposition)
+          {:keys [position history]} transition-proposition
           history-at-position (if (empty? history)
                                 []
                                 (last history))
@@ -195,33 +195,39 @@
                :else (transition-error :invalid-transition automaton-error-free input))))
   (match [_ state input]))
 
+(defrecord Or [matcher]
+
+  ParserCombinator
+
+  (transition [_ automaton input]
+
+    (let [automaton-error-free (dissoc automaton :error)
+          next-state (peek-next-state automaton-error-free)]
+
+      (if (clojure.core/and
+            (set? next-state)
+            (some next-state [input]))
+
+        (transition-common :next automaton-error-free input)
+        (transition-error :invalid-transition automaton-error-free input))))
+
+  (match [_ state input]))
+
+
 (comment
 
-  (def e (automaton [(bound :a 2 3) :b :c :d]))
+  (def g (automaton [(or :z :x :c :v) :b :c]))
 
-  (advance e :a) ;; FAIL
+  (advance g :z)
 
-  (-> e
-      (advance :a)
-      (advance :a))
+  (advance g :c)
 
-  (-> e
-      (advance :a)
-      (advance :a)
-      (advance :a))
+  (-> g
+      (advance :z)
+      (advance :z)) ;; FAIL
 
-  (-> e
-      (advance :a)
-      (advance :a)
-      (advance :a)
-      (advance :a)) ;; FAIL
-
+  (advance g :b) ;; FAIL
   )
-
-(defrecord Or [matcher]
-  ParserCombinator
-  (transition [_ automaton input])
-  (match [_ state input]))
 
 
 ;; :state nil - means start state
@@ -235,7 +241,8 @@
 (defn * [a] (->Star a))
 (defn scalar [a] (->Scalar a))
 (defn bound [a x y] (->Bound a x y))
-(defn or [a] (->Or a))
+(defn ? [a] (->Bound a 0 1))
+(defn or [& branches] (->Or (into #{} branches)))
 
 (defn advance [automaton input]
 
@@ -326,12 +333,42 @@
   (-> d
       (advance :a)
       (advance :b)
-      (advance :c))
+      (advance :c)))
 
+(comment
 
-  ;; E
   (def e (automaton [(bound :a 2 3) :b :c :d]))
 
+  (advance e :a) ;; FAIL
+
+  (-> e
+      (advance :a)
+      (advance :a))
+
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a))
+
+  ;; FAIL
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a)
+      (advance :a)))
+
+#_(comment
+
+  (def f (automaton [(? :a) :b :c :d]))
+
+  (advance f :a)
+
+  ;; FAIL
+  (-> f
+      (advance :a)
+      (advance :a)))
+
+(comment
 
 
   (automaton [(or :z :x :c :v)])
@@ -344,6 +381,4 @@
   (* (or :a :b :c))
   (bound (or :a :b :c) 2 3)
 
-  (+ (or [:a :b] [:a :c]))
-
-  )
+  (+ (or [:a :b] [:a :c])))
