@@ -217,27 +217,20 @@
 (defn bound [a x y] (->Bound a x y))
 (defn ? [a] (->Bound a 0 1))
 (defn or [& branches] (->Or (into #{} branches)))
-(defn automata [states]
+(defmacro automata [states]
   {:pre [(seqable? states)
          ((comp clojure.core/not parser-combinator?) states)]}
 
-  (println states)
-  (let [decorate-fn #(cond
-                       (instance? automata.refactor.ParserCombinator %) %
-                       (seqable? %) (recur %)
-                       :else (scalar %))
-        states-decorated (as-> states s
-                           (map decorate-fn s)
-                           (concat (list (scalar :START)) s (list (scalar :END))))]
+  ;; (println states)
+  (let [vector-nodes-navigator (recursive-path
+                                 [] p
+                                 (cond-path
+                                   vector? (continue-then-stay ALL p)
+                                   seqable? [ALL p]))
+        root-automata (transform vector-nodes-navigator #(->Automata %) states)]
 
-    (-> (->Automata states-decorated)
-        (assoc :position 0
-               :history []))))
+    (transform [:matcher] (partial map eval) root-automata)))
 
-(defmacro foo [states]
-
-  (println (seqable? states))
-  (println (map #(instance? automata.refactor.ParserCombinator %) states)))
 
 (defn advance [automaton input]
 
@@ -403,19 +396,21 @@
 
   ;; (or [:a :b] [:a :c])
 
-
-  (foo [(* (or :a :b :c))])
+  (automata [(* (+ [:a :b :c]))])
   (automata [(* (or :a :b :c))])
   (automata [(* [:a :b])])
 
-  (def TREE-VALUES
-	  (recursive-path [] p
-	                  (cond-path
-                      vector? (continue-then-stay ALL p)
-                      seqable? [ALL p])))
 
-  (select TREE-VALUES '[(* (+ [:a :b :c]))])
-  (transform TREE-VALUES #(into #{} %) '[(* (+ [:a :b :c]))] )
+  (def VECTOR-NODES
+    (recursive-path
+      [] p
+      (cond-path
+        vector? (continue-then-stay ALL p)
+        seqable? [ALL p])))
+
+  (select VECTOR-NODES '[(* (+ [:a :b :c]))])
+  (transform VECTOR-NODES #(into #{} %) '[(* (+ [:a :b :c]))] )
+
 
   (do
 
