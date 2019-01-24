@@ -2,7 +2,7 @@
   (:refer-clojure :exclude [+ * and or not range])
   (:require [clojure.core.match :as m]
             [clojure.tools.trace :refer [trace]]
-            [instaparse.core :as insta]))
+            [com.rpl.specter :refer :all]))
 
 
 (defn position->state [a position]
@@ -183,6 +183,17 @@
         (transition-common :next automaton-error-free input)
         (transition-error :invalid-transition automaton-error-free input)))))
 
+(defrecord Automata [matcher]
+
+  ParserCombinator
+
+  (transition [_ automaton input]
+
+    ))
+
+
+(def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
+
 
 ;; ParserCombinator
 ;;   disambiguate between i. the matcher and ii. current state
@@ -206,6 +217,27 @@
 (defn bound [a x y] (->Bound a x y))
 (defn ? [a] (->Bound a 0 1))
 (defn or [& branches] (->Or (into #{} branches)))
+(defn automata [states]
+  {:pre [(seqable? states)
+         ((comp clojure.core/not parser-combinator?) states)]}
+
+  (println states)
+  (let [decorate-fn #(cond
+                       (instance? automata.refactor.ParserCombinator %) %
+                       (seqable? %) (recur %)
+                       :else (scalar %))
+        states-decorated (as-> states s
+                           (map decorate-fn s)
+                           (concat (list (scalar :START)) s (list (scalar :END))))]
+
+    (-> (->Automata states-decorated)
+        (assoc :position 0
+               :history []))))
+
+(defmacro foo [states]
+
+  (println (seqable? states))
+  (println (map #(instance? automata.refactor.ParserCombinator %) states)))
 
 (defn advance [automaton input]
 
@@ -230,17 +262,8 @@
 
              [_ _ _] :WTF)))
 
-(defn automaton [states]
-  (let [decorate-fn #(cond
-                       (instance? automata.refactor.ParserCombinator %) %
-                       (seqable? %) (automaton %)
-                       :else (scalar %))
-        states-decorated (as-> states s
-                           (map decorate-fn s)
-                           (concat (list (scalar :START)) s (list (scalar :END))))]
-
-    (-> {:states states-decorated}
-        (assoc :position 0 :history []))))
+#_(defn automaton [states]
+  (automata states))
 
 (comment ;; SCALAR, STAR, PLUS
 
@@ -253,12 +276,6 @@
   (advance a :a)
   (advance a :z)
   (advance a [:a :b :c :d])
-
-
-  ;; B TODO
-  ;; (def b (automaton [[:a :b] [:c :d]]))
-  ;; (match b)
-  ;; (advance b :a)
 
 
   ;; C
@@ -387,11 +404,58 @@
   ;; (or [:a :b] [:a :c])
 
 
-  ;; [:a :b] ;; nested scalar
+  (foo [(* (or :a :b :c))])
+  (automata [(* (or :a :b :c))])
+  (automata [(* [:a :b])])
 
-  (* (or :a :b :c)) ;; combinator / combinator
-  (* [:a :b]) ;; combinator / automata
-  [[:a :b] [:a :c]] ;; automata > automata
+  (def TREE-VALUES
+	  (recursive-path [] p
+	                  (cond-path
+                      vector? (continue-then-stay ALL p)
+                      seqable? [ALL p])))
+
+  (select TREE-VALUES '[(* (+ [:a :b :c]))])
+  (transform TREE-VALUES #(into #{} %) '[(* (+ [:a :b :c]))] )
+
+  (do
+
+    ;; A
+    (def a (automaton [:a :b :c :d]))
+
+
+    ;; C
+    (def c (automaton [(* :a) :b :c :d]))
+
+
+    ;; D
+    (def d (automaton [(+ :a) :b :c :d]))
+
+
+    ;; E
+    (def e (automaton [(bound :a 2 3) :b :c :d]))
+
+
+    ;; F
+    (def f (automaton [(bound :a 1 2) :b :c :d]))
+
+
+    ;; FF
+    (def ff (automaton [(bound :a 0 1) :b :c :d]))
+
+
+  ;;; FFF
+    (def fff (automaton [(? :a) :b :c :d]))
+
+
+    ;; G
+    (def g (automaton [(or :z :x :c :v) :b :c])))
+
+
+  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
+
+  (def one (automata [(* (or :a :b :c))])) ;; combinator / combinator
+  (def two (automata [(* [:a :b])])) ;; combinator / automata
+  (def three (automata [[:a :b] [:a :c]])) ;; automata > automata
 
 
   ;; H
