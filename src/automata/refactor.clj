@@ -193,7 +193,7 @@
 
 
 (def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
-
+(def automata? (partial instance? automata.refactor.Automata))
 
 ;; ParserCombinator
 ;;   disambiguate between i. the matcher and ii. current state
@@ -221,15 +221,26 @@
   {:pre [(seqable? states)
          ((comp clojure.core/not parser-combinator?) states)]}
 
-  ;; (println states)
   (let [vector-nodes-navigator (recursive-path
                                  [] p
                                  (cond-path
                                    vector? (continue-then-stay ALL p)
                                    seqable? [ALL p]))
-        root-automata (transform vector-nodes-navigator #(->Automata %) states)]
 
-    (transform [:matcher] (partial map eval) root-automata)))
+        scalar-nodes-navigator (walker
+                                 #(clojure.core/and
+                                    (keyword? %)
+                                    (clojure.core/not (some #{:matcher :position :history} [%]))))
+
+        root-automata (transform vector-nodes-navigator
+                                 #(-> (->Automata %)
+                                      (assoc :position 0
+                                             :history []))
+                                 states)]
+
+    (let [r (transform [:matcher] (partial map eval) root-automata)
+          rr (transform scalar-nodes-navigator scalar r)]
+      rr)))
 
 
 (defn advance [automaton input]
@@ -261,7 +272,7 @@
 (comment ;; SCALAR, STAR, PLUS
 
   ;; A
-  (def a (automaton [:a :b :c :d]))
+  (def a (automata [:a :b :c :d]))
   ;; (match a '(:a :b :c :d) [:a :b :c :d])
   ;; (match a :a :a)
   ;; (match a '(:a :b :c :d) :a) ;; false
@@ -272,7 +283,7 @@
 
 
   ;; C
-  (def c (automaton [(* :a) :b :c :d]))
+  (def c (automata [(* :a) :b :c :d]))
 
   (advance c :a)
   (advance c :b)
@@ -289,7 +300,7 @@
 
 
   ;; D
-  (def d (automaton [(+ :a) :b :c :d]))
+  (def d (automata [(+ :a) :b :c :d]))
 
   (advance d :a)
   (advance d :b) ;; FAIL
@@ -311,7 +322,7 @@
 (comment ;; BOUND
 
   ;; E
-  (def e (automaton [(bound :a 2 3) :b :c :d]))
+  (def e (automata [(bound :a 2 3) :b :c :d]))
 
   (advance e :a) ;; FAIL
 
@@ -333,7 +344,7 @@
 
 
   ;; F
-  (def f (automaton [(bound :a 1 2) :b :c :d]))
+  (def f (automata [(bound :a 1 2) :b :c :d]))
 
   (advance f :a)
 
@@ -354,7 +365,7 @@
 
 
   ;; FF
-  (def ff (automaton [(bound :a 0 1) :b :c :d]))
+  (def ff (automata [(bound :a 0 1) :b :c :d]))
 
   (advance ff :a)
   (advance ff :b)
@@ -366,7 +377,7 @@
 
 
   ;;; FFF
-  (def fff (automaton [(? :a) :b :c :d]))
+  (def fff (automata [(? :a) :b :c :d]))
 
   (advance fff :a)
   (advance fff :b)
@@ -380,7 +391,7 @@
 
 (comment ;; OR
 
-  (def g (automaton [(or :z :x :c :v) :b :c]))
+  (def g (automata [(or :z :x :c :v) :b :c]))
 
   (advance g :z)
   (advance g :c)
@@ -400,50 +411,38 @@
   (automata [(* (or :a :b :c))])
   (automata [(* [:a :b])])
 
-
-  (def VECTOR-NODES
-    (recursive-path
-      [] p
-      (cond-path
-        vector? (continue-then-stay ALL p)
-        seqable? [ALL p])))
-
-  (select VECTOR-NODES '[(* (+ [:a :b :c]))])
-  (transform VECTOR-NODES #(into #{} %) '[(* (+ [:a :b :c]))] )
-
-
   (do
 
     ;; A
-    (def a (automaton [:a :b :c :d]))
+    (def a (automata [:a :b :c :d]))
 
 
     ;; C
-    (def c (automaton [(* :a) :b :c :d]))
+    (def c (automata [(* :a) :b :c :d]))
 
 
     ;; D
-    (def d (automaton [(+ :a) :b :c :d]))
+    (def d (automata [(+ :a) :b :c :d]))
 
 
     ;; E
-    (def e (automaton [(bound :a 2 3) :b :c :d]))
+    (def e (automata [(bound :a 2 3) :b :c :d]))
 
 
     ;; F
-    (def f (automaton [(bound :a 1 2) :b :c :d]))
+    (def f (automata [(bound :a 1 2) :b :c :d]))
 
 
     ;; FF
-    (def ff (automaton [(bound :a 0 1) :b :c :d]))
+    (def ff (automata [(bound :a 0 1) :b :c :d]))
 
 
   ;;; FFF
-    (def fff (automaton [(? :a) :b :c :d]))
+    (def fff (automata [(? :a) :b :c :d]))
 
 
     ;; G
-    (def g (automaton [(or :z :x :c :v) :b :c])))
+    (def g (automata [(or :z :x :c :v) :b :c])))
 
 
   (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
@@ -454,7 +453,7 @@
 
 
   ;; H
-  (def h (automaton [(* (or :a :b :c)) :z :x]))
+  (def h (automata [(* (or :a :b :c)) :z :x]))
 
 
   (advance h :a)
