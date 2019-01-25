@@ -6,7 +6,7 @@
 
 
 (defn position->state [a position]
-  (-> a :states (nth position)))
+  (-> a :matcher (nth position)))
 
 (defn ->state [a]
   (-> a
@@ -249,7 +249,7 @@
         automaton-state (->state automaton)
         identity-guard (fn [inp]
                          (= inp
-                            (->> automaton :states rest butlast (map :matcher))))]
+                            (->> automaton :matcher rest butlast (map :matcher))))]
 
     (m/match [parser-combinator? automaton-state input]
 
@@ -265,6 +265,8 @@
 
              [_ _ _] :WTF)))
 
+;; TODO fix transition for Bound, Or
+;; TODO implement navigation for nesting
 
 (comment ;; SCALAR, STAR, PLUS
 
