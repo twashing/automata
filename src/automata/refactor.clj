@@ -184,12 +184,9 @@
         (transition-error :invalid-transition automaton-error-free input)))))
 
 (defrecord Automata [matcher]
-
   ParserCombinator
-
   (transition [_ automaton input]
-
-    ))
+    :foo))
 
 
 (def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
@@ -221,27 +218,29 @@
   {:pre [(seqable? states)
          ((comp clojure.core/not parser-combinator?) states)]}
 
-  (let [vector-nodes-navigator (recursive-path
-                                 [] p
-                                 (cond-path
-                                   vector? (continue-then-stay ALL p)
-                                   seqable? [ALL p]))
+  (let [walker-vector-list-scalar (fn [v]
+                                    (cond
+                                      (vector? v) (as-> v a
+                                                    (concat (list :START) a (list :END))
+                                                    (map #(if-not (clojure.core/and
+                                                                    (seqable? %)
+                                                                    (parser-combinator? %))
+                                                            (scalar %) %) a)
+                                                    (into [] a)
+                                                    (->Automata a)
+                                                    (assoc a
+                                                           :position 0
+                                                           :history []))
+                                      (list? v) (eval v)
+                                      :else v))
+        walker-set #(if (set? %)
+                      (->> (map scalar %)
+                           (into #{}))
+                      %)]
 
-        scalar-nodes-navigator (walker
-                                 #(clojure.core/and
-                                    (keyword? %)
-                                    (clojure.core/not (some #{:matcher :position :history} [%]))))
-
-        root-automata (transform vector-nodes-navigator
-                                 #(-> (->Automata %)
-                                      (assoc :position 0
-                                             :history []))
-                                 states)]
-
-    (let [r (transform [:matcher] (partial map eval) root-automata)
-          rr (transform scalar-nodes-navigator scalar r)]
-      rr)))
-
+    (->> states
+         (clojure.walk/postwalk walker-vector-list-scalar)
+         (clojure.walk/postwalk walker-set))))
 
 (defn advance [automaton input]
 
@@ -266,8 +265,6 @@
 
              [_ _ _] :WTF)))
 
-#_(defn automaton [states]
-  (automata states))
 
 (comment ;; SCALAR, STAR, PLUS
 
@@ -405,11 +402,12 @@
 
 (comment ;; NESTING
 
-  ;; (or [:a :b] [:a :c])
 
   (automata [(* (+ [:a :b :c]))])
   (automata [(* (or :a :b :c))])
   (automata [(* [:a :b])])
+  (automata [:a :b :c :d])
+  (automata [(bound :a 2 3) :b :c :d])
 
   (do
 
