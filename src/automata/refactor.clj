@@ -75,7 +75,8 @@
   (as-> automaton a
     (assoc a :error {:type error-type
                      :input input})
-    (transition-common :this a input)))
+    (transition-common :this a input)
+    (transition-common :increment-position a input)))
 
 #_(defn start-state? [automaton]
   (-> automaton :state :START))
@@ -268,6 +269,7 @@
 ;; TODO fix transition for Bound, Or
 ;; TODO implement navigation for nesting
 
+
 (comment ;; SCALAR, STAR, PLUS
 
   ;; A
@@ -384,9 +386,7 @@
   ;; FAIL
   (-> fff
       (advance :a)
-      (advance :a))
-
-  )
+      (advance :a)))
 
 (comment ;; OR
 
@@ -464,3 +464,29 @@
   (+ (or :a :b :c))
   (bound (or :a :b :c) 2 3)
   (+ (or [:a :b] [:a :c])))
+
+
+;; (use 'com.rpl.specter)
+;;
+;; (defrecord Foo [bar])
+;;
+;; (def a
+;;   #automata.refactor.Foo
+;;   {:bar #automata.refactor.Foo
+;;    {:bar (#automata.refactor.Foo{:bar :a :x 1 :y 2} :b :c :d)}})
+;;
+;; (def LEAF-WALKER
+;;   (recursive-path [] p
+;;                   (cond-path
+;;                     #(instance? Foo %) [:bar p]
+;;                     seqable? [ALL #(instance? Foo %) p]
+;;                     STAY STAY)))
+;;
+;; (def FOO-WALKER
+;;   (recursive-path [] p
+;;                   (cond-path
+;;                     #(instance? Foo %) [:bar p]
+;;                     seqable? [ALL #(instance? Foo %) p]
+;;                     STAY STAY)))
+;;
+;; (select LEAF-WALKER a)
