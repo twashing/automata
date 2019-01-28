@@ -179,7 +179,10 @@
 
       (if (clojure.core/and
             (set? next-state)
-            (some next-state [input]))
+            (some (->> next-state
+                       (map :matcher)
+                       (into #{}))
+                  [input]))
 
         (transition-common :next automaton-error-free input)
         (transition-error :invalid-transition automaton-error-free input)))))
