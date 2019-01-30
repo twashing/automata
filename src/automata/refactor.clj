@@ -119,14 +119,10 @@
   (if ((comp clojure.core/not automata?) input)
     true
     (->> input
-         trace
          :matcher
-         trace
          (map :matcher)
-         trace
          (keep-indexed
            #(if (= %2 :END) %1))
-         trace
          first
          dec
          (= (:position input)))))
@@ -157,20 +153,19 @@
     (let [automaton-error-free (dissoc automaton :error)
           next-position (-> automaton :position inc)
           next-state (peek-next-state automaton-error-free)
-          automaton->with-updated-node (fn [next-position input automaton-error-free]
-                                         (transform [:matcher (nthpath next-position) :matcher]
-                                                    (constantly input)
-                                                    automaton-error-free))]
-      ;; (trace automaton)
-      ;; (trace this)
-      ;; (trace next-state)
+
+          conditionally-append-to-history (fn [node automaton-updated]
+                                            (if (complete? (trace node))
+                                              (transition-common :this automaton-updated automaton-updated)
+                                              automaton-updated))
+          automaton->with-updated-node (fn [next-position node automaton-error-free]
+
+                                         (->> (transform [:matcher (nthpath next-position) :matcher]
+                                                         (constantly node)
+                                                         automaton-error-free)
+                                              (conditionally-append-to-history node)))]
 
       '[[is-automata incomplete] / nest
-
-        ;; when complete
-        ;;   add entire automata -> history
-        ;;   advance position by 1
-
         [is-automata complete] / check-repeat [repeat | next]
         [not-automata _] / goto B]
 
@@ -179,6 +174,7 @@
                [true false] (as-> input i
                               (transition next-state next-state i)
                               (automaton->with-updated-node next-position i automaton-error-free))
+
                [_ true] (transition-local :star automaton-error-free input)))))
 
 
@@ -192,6 +188,11 @@
   (-> one
       (advance :a)
       (advance :b))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :c))
 
   (-> one
       (advance :a)
@@ -352,29 +353,11 @@
 
   ParserCombinator
 
-  #_(transition [_ automaton input]
-
-    (println "Here")
-    (trace [automaton input])
-    (trace [(peek-next-matcher automaton) (peek-next-state automaton)])
-
-    (let [parser-combinator? (->> (->matcher automaton)
-                                  (instance? automata.refactor.ParserCombinator))
-          automaton-state (->state automaton)
-          identity-guard (fn [inp]
-                           (= inp
-                              (->> automaton :matcher rest butlast (map :matcher))))]
-
-      (trace [parser-combinator? automaton-state])))
-
   (transition [_ automaton input]
 
-    (println "Here")
     (let [parser-combinator? (->> (->matcher automaton)
                                   (instance? automata.refactor.ParserCombinator))
           automaton-state (->state automaton)
-          ;; _ (trace [parser-combinator? automaton-state])
-
           identity-guard (fn [inp]
                            (= inp
                               (->> automaton :matcher rest butlast (map :matcher))))]
@@ -447,7 +430,8 @@
 
 (defn advance [automaton input]
 
-  (let [parser-combinator? (->> (->matcher automaton)
+  (transition automaton automaton input)
+  #_(let [parser-combinator? (->> (->matcher automaton)
                                 (instance? automata.refactor.ParserCombinator))
         automaton-state (->state automaton)
         identity-guard (fn [inp]
