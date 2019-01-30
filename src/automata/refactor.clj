@@ -153,29 +153,47 @@
     (let [automaton-error-free (dissoc automaton :error)
           next-position (-> automaton :position inc)
           next-state (peek-next-state automaton-error-free)
+          this-state (->state automaton-error-free)
 
           conditionally-append-to-history (fn [node automaton-updated]
-                                            (if (complete? (trace node))
+                                            (if (complete? node)
                                               (transition-common :this automaton-updated automaton-updated)
                                               automaton-updated))
-          automaton->with-updated-node (fn [next-position node automaton-error-free]
 
+          conditionally-increment-position (fn [node automaton-updated]
+                                             (if (complete? node)
+                                               (transition-common
+                                                 :increment-position automaton-updated automaton-updated)
+                                               automaton-updated))
+
+          automaton->with-updated-node (fn [next-position node automaton-error-free]
                                          (->> (transform [:matcher (nthpath next-position) :matcher]
                                                          (constantly node)
                                                          automaton-error-free)
-                                              (conditionally-append-to-history node)))]
+                                              (conditionally-append-to-history node)
+                                              (conditionally-increment-position node)))
+
+          automata-this? (automata? this-state)
+          complete-this? (complete? this-state)
+          automata-next? (automata? next-state)
+          complete-next? (complete? next-state)]
 
       '[[is-automata incomplete] / nest
         [is-automata complete] / check-repeat [repeat | next]
         [not-automata _] / goto B]
 
-      (m/match [(automata? next-state) (complete? next-state)]
+      (trace [automata-this? complete-this? automata-next? complete-next?])
+      (m/match [automata-this? complete-this? automata-next? complete-next?]
 
-               [true false] (as-> input i
-                              (transition next-state next-state i)
-                              (automaton->with-updated-node next-position i automaton-error-free))
+               [true false _ _] (as-> input i
+                                  (transition this-state this-state i)
+                                  (automaton->with-updated-node next-position i automaton-error-free))
 
-               [_ true] (transition-local :star automaton-error-free input)))))
+               [_ _ true false] (as-> input i
+                                  (transition next-state next-state i)
+                                  (automaton->with-updated-node next-position i automaton-error-free))
+
+               [_ _ _ true] (transition-local :star automaton-error-free input)))))
 
 
 (comment ;; FOO
@@ -193,6 +211,11 @@
       (advance :a)
       (advance :b)
       (advance :c))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a))
 
   (-> one
       (advance :a)
@@ -429,31 +452,8 @@
          (clojure.walk/postwalk walker-set))))
 
 (defn advance [automaton input]
+  (transition automaton automaton input))
 
-  (transition automaton automaton input)
-  #_(let [parser-combinator? (->> (->matcher automaton)
-                                (instance? automata.refactor.ParserCombinator))
-        automaton-state (->state automaton)
-        identity-guard (fn [inp]
-                         (= inp
-                            (->> automaton :matcher rest butlast (map :matcher))))]
-
-    (m/match [parser-combinator? automaton-state input]
-
-
-             ;; START / END states
-             [_ :START (_ :guard identity-guard)] (identity automaton)
-             [_ :START _] (transition (peek-next-matcher automaton) automaton input)
-             [_ :END _] (identity automaton)
-
-
-             ;; ParserCombinator states
-             [true _ _] (transition (->matcher automaton) automaton input)
-
-             [_ _ _] :WTF)))
-
-
-;; TODO implement navigation for nesting
 
 (comment ;; SCALAR, STAR, PLUS
 
