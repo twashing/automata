@@ -115,7 +115,38 @@
 
         :else (transition-error :invalid-transition automaton-error-free input)))))
 
-(def complete? (constantly true))
+(defn complete? [input]
+  (if ((comp clojure.core/not automata?) input)
+    true
+    (->> input
+         trace
+         :matcher
+         trace
+         (map :matcher)
+         trace
+         (keep-indexed
+           #(if (= %2 :END) %1))
+         trace
+         first
+         dec
+         (= (:position input)))))
+
+(defmulti transition-local (fn [dispatch _ _] dispatch))
+
+(defmethod transition-local :star [_ automaton-error-free input]
+
+  (cond
+
+    (= input (->state automaton-error-free))
+    (transition-common :this automaton-error-free input)
+
+    (= input (peek-next-state automaton-error-free))
+    (transition-common :next automaton-error-free input)
+
+    (= input (peek-nth-state automaton-error-free 2))
+    (transition-common :skip automaton-error-free input)
+
+    :else (transition-error :invalid-transition automaton-error-free input)))
 
 (defrecord Star [matcher]
 
@@ -124,49 +155,49 @@
   (transition [this automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          this-matcher (:matcher this)]
-
+          next-position (-> automaton :position inc)
+          next-state (peek-next-state automaton-error-free)
+          automaton->with-updated-node (fn [next-position input automaton-error-free]
+                                         (transform [:matcher (nthpath next-position) :matcher]
+                                                    (constantly input)
+                                                    automaton-error-free))]
+      ;; (trace automaton)
       ;; (trace this)
-      ;; (trace (automata? this-matcher))
-      ;; (trace (complete? this-matcher)) ;; when complete, check next block
-      ;; (trace (transition this-matcher this-matcher input)) ;; replace this w/ result
-
-      ;; A
-      ;; (m/match [(parser-combinator? this-matcher)
-      ;;           (complete? this-matcher)]
-      ;;
-      ;;          ;; replace "this" w/ result
-      ;;          ;; on completion, put entire automata into history
-      ;;          [true false] (transition this-matcher this-matcher input)
-      ;;          [true true] :asdf ;; goto B
-      ;;
-      ;;          )
+      ;; (trace next-state)
 
       '[[is-automata incomplete] / nest
+
+        ;; when complete
+        ;;   add entire automata -> history
+        ;;   advance position by 1
+
         [is-automata complete] / check-repeat [repeat | next]
-        [not-automata _] / goto B
-        [next-is-automata _] next, nest]
+        [not-automata _] / goto B]
 
-      (trace this-matcher)
-      (trace (peek-next-state automaton-error-free))
+      (m/match [(automata? next-state) (complete? next-state)]
 
-      ;; B
-      (cond
+               [true false] (as-> input i
+                              (transition next-state next-state i)
+                              (automaton->with-updated-node next-position i automaton-error-free))
+               [_ true] (transition-local :star automaton-error-free input)))))
 
-        ;; (clojure.core/and
-        ;;   (automata? (peek-next-state automaton-error-free))
-        ;;   (comp clojure.core/not complete?))
 
-        (= input (->state automaton-error-free))
-        (transition-common :this automaton-error-free input)
+(comment ;; FOO
 
-        (= input (peek-next-state automaton-error-free))
-        (transition-common :next automaton-error-free input)
+  (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
 
-        (= input (peek-nth-state automaton-error-free 2))
-        (transition-common :skip automaton-error-free input)
+  ;; one
+  (advance one :a)
 
-        :else (transition-error :invalid-transition automaton-error-free input)))))
+  (-> one
+      (advance :a)
+      (advance :b))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)))
 
 (comment ;; NESTING
 
@@ -210,29 +241,11 @@
     ;; G
     (def g (automata [(or :z :x :c :v) :b :c])))
 
-
   (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
 
   (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
   (def two (automata [(* (or :a :b :c))])) ;; combinator / combinator
   (def three (automata [[:a :b] [:a :c]])) ;; automata > automata
-
-  #automata.refactor.Automata
-  {:matcher
-   [#automata.refactor.Scalar{:matcher :START}
-    #automata.refactor.Star
-    {:matcher #automata.refactor.Automata
-     {:matcher
-      [#automata.refactor.Scalar{:matcher :START}
-       #automata.refactor.Scalar{:matcher :a}
-       #automata.refactor.Scalar{:matcher :b}
-       #automata.refactor.Scalar{:matcher :END}],
-      :position 0,
-      :history []}}
-    #automata.refactor.Scalar{:matcher :c}
-    #automata.refactor.Scalar{:matcher :END}],
-   :position 0,
-   :history []}
 
 
   ;; one
@@ -339,9 +352,44 @@
 
   ParserCombinator
 
+  #_(transition [_ automaton input]
+
+    (println "Here")
+    (trace [automaton input])
+    (trace [(peek-next-matcher automaton) (peek-next-state automaton)])
+
+    (let [parser-combinator? (->> (->matcher automaton)
+                                  (instance? automata.refactor.ParserCombinator))
+          automaton-state (->state automaton)
+          identity-guard (fn [inp]
+                           (= inp
+                              (->> automaton :matcher rest butlast (map :matcher))))]
+
+      (trace [parser-combinator? automaton-state])))
+
   (transition [_ automaton input]
 
-    (trace [automaton input])))
+    (println "Here")
+    (let [parser-combinator? (->> (->matcher automaton)
+                                  (instance? automata.refactor.ParserCombinator))
+          automaton-state (->state automaton)
+          ;; _ (trace [parser-combinator? automaton-state])
+
+          identity-guard (fn [inp]
+                           (= inp
+                              (->> automaton :matcher rest butlast (map :matcher))))]
+
+      (m/match [parser-combinator? automaton-state input]
+
+               ;; START / END states
+               [_ :START (_ :guard identity-guard)] (identity automaton)
+               [_ :START _] (transition (peek-next-matcher automaton) automaton input)
+               [_ :END _] (identity automaton)
+
+               ;; ParserCombinator states
+               [true _ _] (transition (->matcher automaton) automaton input)
+
+               [_ _ _] :WTF))))
 
 
 (def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
@@ -582,3 +630,20 @@
 ;;                     STAY STAY)))
 ;;
 ;; (select LEAF-WALKER a)
+
+;; automata.refactor.Automata
+;; :matcher
+;; [#automata.refactor.Scalar{:matcher :START}
+;;  #automata.refactor.Star
+;;  {:matcher #automata.refactor.Automata
+;;   {:matcher
+;;    [#automata.refactor.Scalar{:matcher :START}
+;;     #automata.refactor.Scalar{:matcher :a}
+;;     #automata.refactor.Scalar{:matcher :b}
+;;     #automata.refactor.Scalar{:matcher :END}],
+;;    :position 0,
+;;    :history []}}
+;;  #automata.refactor.Scalar{:matcher :c}
+;;  #automata.refactor.Scalar{:matcher :END}],
+;; :position 0,
+;; :history []}
