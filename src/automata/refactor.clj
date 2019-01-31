@@ -36,6 +36,23 @@
 (defn peek-nth-matcher [a n]
   (position->state a (clojure.core/+ n (:position a))))
 
+(defn complete? [input]
+  (if ((comp clojure.core/not automata?) input)
+    true
+    (->> input
+         :matcher
+         (map :matcher)
+         (keep-indexed
+           #(if (= %2 :END) %1))
+         first
+         dec
+         (= (:position input)))))
+
+(defn identity? [automaton node]
+  (= (->state automaton)
+     node))
+
+
 
 (defmulti transition-common (fn [dispatch _ _] dispatch))
 
@@ -66,6 +83,7 @@
          :position (-> automaton :position (clojure.core/+ 2))))
 
 
+
 (defmulti transition-error (fn [error-type _ _] error-type))
 
 (defmethod transition-error :invalid-transition
@@ -82,8 +100,25 @@
     (transition-common :this a input)
     (transition-common :increment-position a input)))
 
-#_(defn start-state? [automaton]
-  (-> automaton :state :START))
+
+
+(defmulti transition-local (fn [dispatch _ _] dispatch))
+
+(defmethod transition-local :star [_ automaton-error-free input]
+
+  (cond
+
+    (= input (->state automaton-error-free))
+    (transition-common :this automaton-error-free input)
+
+    (= input (peek-next-state automaton-error-free))
+    (transition-common :next automaton-error-free input)
+
+    (= input (peek-nth-state automaton-error-free 2))
+    (transition-common :skip automaton-error-free input)
+
+    :else (transition-error :invalid-transition automaton-error-free input)))
+
 
 
 (defprotocol ParserCombinator
@@ -114,39 +149,6 @@
         (transition-common :this automaton-error-free input)
 
         :else (transition-error :invalid-transition automaton-error-free input)))))
-
-(defn complete? [input]
-  (if ((comp clojure.core/not automata?) input)
-    true
-    (->> input
-         :matcher
-         (map :matcher)
-         (keep-indexed
-           #(if (= %2 :END) %1))
-         first
-         dec
-         (= (:position input)))))
-
-(defn identity? [automaton node]
-  (= (->state automaton)
-     node))
-
-(defmulti transition-local (fn [dispatch _ _] dispatch))
-
-(defmethod transition-local :star [_ automaton-error-free input]
-
-  (cond
-
-    (= input (->state automaton-error-free))
-    (transition-common :this automaton-error-free input)
-
-    (= input (peek-next-state automaton-error-free))
-    (transition-common :next automaton-error-free input)
-
-    (= input (peek-nth-state automaton-error-free 2))
-    (transition-common :skip automaton-error-free input)
-
-    :else (transition-error :invalid-transition automaton-error-free input)))
 
 (defrecord Star [matcher]
 
@@ -211,135 +213,6 @@
                [_ _ _ true false] (as-> input i
                                   (transition next-state next-state i)
                                   (automaton->with-updated-node next-position i automaton-error-free))))))
-
-
-(comment ;; FOO
-
-  (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
-
-  ;; one
-  (advance one :a)
-
-  (-> one
-      (advance :a)
-      (advance :b))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :c))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :a))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)
-      (advance :c)))
-
-(comment ;; NESTING
-
-  (do
-    (automata [(* (+ [:a :b :c]))])
-    (automata [(* (or :a :b :c))])
-    (automata [(* [:a :b])])
-    (automata [:a :b :c :d])
-    (automata [(bound :a 2 3) :b :c :d]))
-
-  (do
-
-    ;; A
-    (def a (automata [:a :b :c :d]))
-
-
-    ;; C
-    (def c (automata [(* :a) :b :c :d]))
-
-
-    ;; D
-    (def d (automata [(+ :a) :b :c :d]))
-
-
-    ;; E
-    (def e (automata [(bound :a 2 3) :b :c :d]))
-
-
-    ;; F
-    (def f (automata [(bound :a 1 2) :b :c :d]))
-
-
-    ;; FF
-    (def ff (automata [(bound :a 0 1) :b :c :d]))
-
-
-  ;;; FFF
-    (def fff (automata [(? :a) :b :c :d]))
-
-
-    ;; G
-    (def g (automata [(or :z :x :c :v) :b :c])))
-
-  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
-
-  (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
-  (def two (automata [(* (or :a :b :c))])) ;; combinator / combinator
-  (def three (automata [[:a :b] [:a :c]])) ;; automata > automata
-
-
-  ;; one
-  (advance one :a)
-
-  (-> one
-      (advance :a)
-      (advance :b))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :c))
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)
-      (advance :c))
-
-  (advance one :c)
-
-  (-> one
-      (advance :a)
-      (advance :b)
-      (advance :c)) ;; FAIL
-
-  ;; H
-  (def h (automata [(* (or :a :b :c)) :z :x]))
-
-
-  (advance h :a)
-  (advance h :b)
-  (advance h :c)
-
-
-  (+ (or :a :b :c))
-  (bound (or :a :b :c) 2 3)
-  (+ (or [:a :b] [:a :c])))
 
 (defrecord Bound [matcher x y]
 
@@ -440,7 +313,6 @@
 ;; :state START
 ;; :state END
 
-
 (defn + [a] (->Plus a))
 (defn * [a] (->Star a))
 (defn scalar [a] (->Scalar a))
@@ -476,6 +348,8 @@
          (clojure.walk/postwalk walker-set))))
 
 (defn advance [automaton input]
+
+  ;; TODO ensure of type automaton
   (transition automaton automaton input))
 
 
@@ -611,7 +485,104 @@
   (advance g :b) ;; FAIL
   )
 
+(comment ;; NESTING STAR
 
+  (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
+
+  ;; one
+  (advance one :a)
+
+  (-> one
+      (advance :a)
+      (advance :b))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :c))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+      (advance :c)))
+
+;; TODO NESTING PLUS
+;; TODO NESTING BOUND
+;; TODO NESTING OR
+
+(comment ;; NESTING
+
+  (do
+    (automata [(* (+ [:a :b :c]))])
+    (automata [(* (or :a :b :c))])
+    (automata [(* [:a :b])])
+    (automata [:a :b :c :d])
+    (automata [(bound :a 2 3) :b :c :d]))
+
+  (do
+
+    ;; A
+    (def a (automata [:a :b :c :d]))
+
+
+    ;; C
+    (def c (automata [(* :a) :b :c :d]))
+
+
+    ;; D
+    (def d (automata [(+ :a) :b :c :d]))
+
+
+    ;; E
+    (def e (automata [(bound :a 2 3) :b :c :d]))
+
+
+    ;; F
+    (def f (automata [(bound :a 1 2) :b :c :d]))
+
+
+    ;; FF
+    (def ff (automata [(bound :a 0 1) :b :c :d]))
+
+
+  ;;; FFF
+    (def fff (automata [(? :a) :b :c :d]))
+
+
+    ;; G
+    (def g (automata [(or :z :x :c :v) :b :c])))
+
+  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
+
+  (def two (automata [(* (or :a :b :c))])) ;; combinator / combinator
+  (def three (automata [[:a :b] [:a :c]])) ;; automata > automata
+
+
+  ;; H
+  (def h (automata [(* (or :a :b :c)) :z :x]))
+
+
+  (advance h :a)
+  (advance h :b)
+  (advance h :c)
+
+
+  (+ (or :a :b :c))
+  (bound (or :a :b :c) 2 3)
+  (+ (or [:a :b] [:a :c])))
 
 
 ;; (use 'com.rpl.specter)
