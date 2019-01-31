@@ -127,6 +127,10 @@
          dec
          (= (:position input)))))
 
+(defn identity? [automaton node]
+  (= (->state automaton)
+     node))
+
 (defmulti transition-local (fn [dispatch _ _] dispatch))
 
 (defmethod transition-local :star [_ automaton-error-free input]
@@ -153,6 +157,8 @@
     (let [automaton-error-free (dissoc automaton :error)
           next-position (-> automaton :position inc)
           next-state (peek-next-state automaton-error-free)
+
+          this-position (-> automaton :position)
           this-state (->state automaton-error-free)
 
           conditionally-append-to-history (fn [node automaton-updated]
@@ -161,39 +167,50 @@
                                               automaton-updated))
 
           conditionally-increment-position (fn [node automaton-updated]
-                                             (if (complete? node)
+                                             (if (clojure.core/and
+                                                   (complete? node)
+                                                   (clojure.core/not (identity? automaton-updated node)))
                                                (transition-common
                                                  :increment-position automaton-updated automaton-updated)
                                                automaton-updated))
 
-          automaton->with-updated-node (fn [next-position node automaton-error-free]
-                                         (->> (transform [:matcher (nthpath next-position) :matcher]
+          conditionally-reset-matcher (fn [node position automaton-updated]
+                                        (if (complete? node)
+                                          (as-> node n
+                                            (assoc n
+                                                   :position 0
+                                                   :history [])
+                                            (transform [:matcher (nthpath position) :matcher]
+                                                       (constantly n)
+                                                       automaton-updated))
+                                          automaton-updated))
+
+          automaton->with-updated-node (fn [position node automaton-error-free]
+                                         (->> (transform [:matcher (nthpath position) :matcher]
                                                          (constantly node)
                                                          automaton-error-free)
                                               (conditionally-append-to-history node)
-                                              (conditionally-increment-position node)))
+                                              (conditionally-increment-position node)
+                                              (conditionally-reset-matcher node position)))
 
           automata-this? (automata? this-state)
           complete-this? (complete? this-state)
           automata-next? (automata? next-state)
-          complete-next? (complete? next-state)]
+          complete-next? (complete? next-state)
 
-      '[[is-automata incomplete] / nest
-        [is-automata complete] / check-repeat [repeat | next]
-        [not-automata _] / goto B]
+          peeked-node-equals? (= input (peek-next-state automaton-error-free))]
 
-      (trace [automata-this? complete-this? automata-next? complete-next?])
-      (m/match [automata-this? complete-this? automata-next? complete-next?]
+      (m/match [peeked-node-equals? automata-this? complete-this? automata-next? complete-next?]
 
-               [true false _ _] (as-> input i
+               [true _ _ _ true] (transition-local :star automaton-error-free input)
+
+               [_ true false _ _] (as-> input i
                                   (transition this-state this-state i)
-                                  (automaton->with-updated-node next-position i automaton-error-free))
+                                  (automaton->with-updated-node this-position i automaton-error-free))
 
-               [_ _ true false] (as-> input i
+               [_ _ _ true false] (as-> input i
                                   (transition next-state next-state i)
-                                  (automaton->with-updated-node next-position i automaton-error-free))
-
-               [_ _ _ true] (transition-local :star automaton-error-free input)))))
+                                  (automaton->with-updated-node next-position i automaton-error-free))))))
 
 
 (comment ;; FOO
@@ -221,7 +238,14 @@
       (advance :a)
       (advance :b)
       (advance :a)
-      (advance :b)))
+      (advance :b))
+
+  (-> one
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+      (advance :c)))
 
 (comment ;; NESTING
 
