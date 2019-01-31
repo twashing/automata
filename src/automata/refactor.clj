@@ -321,7 +321,7 @@
 (defn or [& branches] (->Or (into #{} branches)))
 (defmacro automata [states]
   {:pre [(seqable? states)
-         ((comp clojure.core/not parser-combinator?) states)]}
+         ((comp clojure.core/not parser-combinator?) (eval states))]}
 
   (let [walker-vector-list-scalar (fn [v]
                                     (cond
@@ -348,8 +348,6 @@
          (clojure.walk/postwalk walker-set))))
 
 (defn advance [automaton input]
-
-  ;; TODO ensure of type automaton
   (transition automaton automaton input))
 
 
@@ -504,9 +502,8 @@
   (-> one
       (advance :a)
       (advance :b)
-      (advance :a))
-
-  (-> one
+      (advance :))
+  (-> oneDO
       (advance :a)
       (advance :b)
       (advance :a)
@@ -524,6 +521,9 @@
 ;; TODO NESTING OR
 
 (comment ;; NESTING
+
+  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
+
 
   (do
     (automata [(* (+ [:a :b :c]))])
@@ -565,7 +565,6 @@
     ;; G
     (def g (automata [(or :z :x :c :v) :b :c])))
 
-  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
 
   (def two (automata [(* (or :a :b :c))])) ;; combinator / combinator
   (def three (automata [[:a :b] [:a :c]])) ;; automata > automata
