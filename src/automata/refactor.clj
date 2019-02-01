@@ -104,6 +104,18 @@
 
 (defmulti transition-local (fn [dispatch _ _] dispatch))
 
+(defmethod transition-local :plus [_ automaton-error-free input]
+
+  (cond
+
+    (= input (peek-next-state automaton-error-free))
+    (transition-common :next automaton-error-free input)
+
+    (= input (->state automaton-error-free))
+    (transition-common :this automaton-error-free input)
+
+    :else (transition-error :invalid-transition automaton-error-free input)))
+
 (defmethod transition-local :star [_ automaton-error-free input]
 
   (cond
@@ -118,6 +130,71 @@
     (transition-common :skip automaton-error-free input)
 
     :else (transition-error :invalid-transition automaton-error-free input)))
+
+(defmethod transition-local :bound [_ {:keys [x y] :as automaton-error-free} input]
+
+  (let [transition-proposition (if (= (peek-next-state automaton-error-free) input)
+                                 (transition-common :next automaton-error-free input)
+                                 (transition-common :this automaton-error-free input))
+        {:keys [position history]} transition-proposition
+        history-at-position (if (empty? history)
+                              []
+                              (last history))
+        size-at-position (count history-at-position)]
+
+    (m/match [transition-proposition size-at-position]
+
+             ;; BEFORE BOUNDS
+             [(_ :guard #(= input (->state %)))
+              (_ :guard #(< % x))]
+             (transition-error :input-out-of-bounds automaton-error-free input)
+
+             ;; WITHIN BOUNDS
+             [(_ :guard #(= input (->state %)))
+              (_ :guard #(clojure.core/and
+                           (>= % x)
+                           (<= % y)))]
+             transition-proposition
+
+             ;; LOOKAHEAD
+             [(_ :guard #(= (peek-nth-state % (clojure.core/+ 2 position)) input)) _]
+             (transition-common :skip automaton-error-free input)
+
+             :else (transition-error :invalid-transition automaton-error-free input))))
+
+
+
+(defn conditionally-append-to-history [node automaton-updated]
+  (if (complete? node)
+    (transition-common :this automaton-updated automaton-updated)
+    automaton-updated))
+
+(defn conditionally-increment-position [node automaton-updated]
+  (if (clojure.core/and
+        (complete? node)
+        (clojure.core/not (identity? automaton-updated node)))
+    (transition-common
+      :increment-position automaton-updated automaton-updated)
+    automaton-updated))
+
+(defn conditionally-reset-matcher [node position automaton-updated]
+  (if (complete? node)
+    (as-> node n
+      (assoc n
+             :position 0
+             :history [])
+      (transform [:matcher (nthpath position) :matcher]
+                 (constantly n)
+                 automaton-updated))
+    automaton-updated))
+
+(defn automaton->with-updated-node [position node automaton-error-free]
+  (->> (transform [:matcher (nthpath position) :matcher]
+                  (constantly node)
+                  automaton-error-free)
+       (conditionally-append-to-history node)
+       (conditionally-increment-position node)
+       (conditionally-reset-matcher node position)))
 
 
 
@@ -136,19 +213,83 @@
 
   ParserCombinator
 
-  (transition [_ automaton input]
+  (transition [this automaton input]
 
-    (let [automaton-error-free (dissoc automaton :error)]
+    (let [automaton-error-free (dissoc automaton :error)
+          next-position (-> automaton :position inc)
+          next-state (peek-next-state automaton-error-free)
 
-      (cond
+          this-position (-> automaton :position)
+          this-state (->state automaton-error-free)
 
-        (= input (peek-next-state automaton-error-free))
-        (transition-common :next automaton-error-free input)
+          automata-this? (automata? this-state)
+          complete-this? (complete? this-state)
+          automata-next? (automata? next-state)
+          complete-next? (complete? next-state)]
 
-        (= input (->state automaton-error-free))
-        (transition-common :this automaton-error-free input)
+      (m/match [automata-this? complete-this? automata-next? complete-next?]
 
-        :else (transition-error :invalid-transition automaton-error-free input)))))
+               [true false _ _] (as-> input i
+                                  (transition this-state this-state i)
+                                  (automaton->with-updated-node this-position i automaton-error-free))
+
+               [_ _ true false] (as-> input i
+                                  (transition next-state next-state i)
+                                  (automaton->with-updated-node next-position i automaton-error-free))
+
+               [_ _ _ true] (transition-local :plus automaton-error-free input))))
+
+  #_(transition [_ automaton input]
+
+      (let [automaton-error-free (dissoc automaton :error)]
+
+        (cond
+
+          (= input (peek-next-state automaton-error-free))
+          (transition-common :next automaton-error-free input)
+
+          (= input (->state automaton-error-free))
+          (transition-common :this automaton-error-free input)
+
+          :else (transition-error :invalid-transition automaton-error-free input)))))
+
+(comment ;; NESTING PLUS
+
+  (def zero (automata [(+ [:a :b]) :c])) ;; combinator / automata
+
+  (advance zero :a)
+
+  (advance zero :c) ;; TODO should FAIL
+
+  (-> zero
+      (advance :a)
+      (advance :b))
+
+  ;; FIX
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :c))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b))
+
+  ;; FIX
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+
+      (advance :c)))
 
 (defrecord Star [matcher]
 
@@ -162,38 +303,6 @@
 
           this-position (-> automaton :position)
           this-state (->state automaton-error-free)
-
-          conditionally-append-to-history (fn [node automaton-updated]
-                                            (if (complete? node)
-                                              (transition-common :this automaton-updated automaton-updated)
-                                              automaton-updated))
-
-          conditionally-increment-position (fn [node automaton-updated]
-                                             (if (clojure.core/and
-                                                   (complete? node)
-                                                   (clojure.core/not (identity? automaton-updated node)))
-                                               (transition-common
-                                                 :increment-position automaton-updated automaton-updated)
-                                               automaton-updated))
-
-          conditionally-reset-matcher (fn [node position automaton-updated]
-                                        (if (complete? node)
-                                          (as-> node n
-                                            (assoc n
-                                                   :position 0
-                                                   :history [])
-                                            (transform [:matcher (nthpath position) :matcher]
-                                                       (constantly n)
-                                                       automaton-updated))
-                                          automaton-updated))
-
-          automaton->with-updated-node (fn [position node automaton-error-free]
-                                         (->> (transform [:matcher (nthpath position) :matcher]
-                                                         (constantly node)
-                                                         automaton-error-free)
-                                              (conditionally-append-to-history node)
-                                              (conditionally-increment-position node)
-                                              (conditionally-reset-matcher node position)))
 
           automata-this? (automata? this-state)
           complete-this? (complete? this-state)
@@ -221,34 +330,57 @@
   (transition [_ automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          transition-proposition (if (= (peek-next-state automaton-error-free) input)
-                                   (transition-common :next automaton-error-free input)
-                                   (transition-common :this automaton-error-free input))
-          {:keys [position history]} transition-proposition
-          history-at-position (if (empty? history)
-                                []
-                                (last history))
-          size-at-position (count history-at-position)]
+          next-position (-> automaton :position inc)
+          next-state (peek-next-state automaton-error-free)
 
-      (m/match [transition-proposition size-at-position]
+          this-position (-> automaton :position)
+          this-state (->state automaton-error-free)
 
-               ;; BEFORE BOUNDS
-               [(_ :guard #(= input (->state %)))
-                (_ :guard #(< % x))]
-               (transition-error :input-out-of-bounds automaton-error-free input)
+          automata-this? (automata? this-state)
+          complete-this? (complete? this-state)
+          automata-next? (automata? next-state)
+          complete-next? (complete? next-state)]
 
-               ;; WITHIN BOUNDS
-               [(_ :guard #(= input (->state %)))
-                (_ :guard #(clojure.core/and
-                             (>= % x)
-                             (<= % y)))]
-               transition-proposition
+      (m/match [automata-this? complete-this? automata-next? complete-next?]
 
-               ;; LOOKAHEAD
-               [(_ :guard #(= (peek-nth-state % (clojure.core/+ 2 position)) input)) _]
-               (transition-common :skip automaton-error-free input)
+               [true false _ _] (as-> input i
+                                  (transition this-state this-state i)
+                                  (automaton->with-updated-node this-position i automaton-error-free))
 
-               :else (transition-error :invalid-transition automaton-error-free input)))))
+               [_ _ true false] (as-> input i
+                                  (transition next-state next-state i)
+                                  (automaton->with-updated-node next-position i automaton-error-free))
+
+               [_ _ _ true] (transition-local :bound (assoc automaton-error-free :x x :y y) input)))))
+
+(comment ;; NESTING BOUND
+
+  (def two (automata [(bound [:a :b] 2 3) :c :d]))
+
+  (advance two :a)
+  (advance two :c) ;; TODO should FAIL
+
+  (-> two
+      (advance :a)
+      (advance :b)) ;; NOT YET
+
+  (-> two
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)) ;; GOOD
+
+  ;; TODO
+  (-> two
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+
+      (advance :a)) ;; FAIL
+  )
 
 (defrecord Or [matcher]
 
@@ -399,75 +531,75 @@
   (-> d
       (advance :a)
       (advance :b)
-      (advance :c))
+      (advance :c)))
 
-  (comment ;; BOUND
+(comment ;; BOUND
 
-    ;; E
-    (def e (automata [(bound :a 2 3) :b :c :d]))
+  ;; E
+  (def e (automata [(bound :a 2 3) :b :c :d]))
 
-    (advance e :a) ;; FAIL
+  (advance e :a) ;; FAIL
 
-    (-> e
-        (advance :a)
-        (advance :a))
+  (-> e
+      (advance :a)
+      (advance :a))
 
-    (-> e
-        (advance :a)
-        (advance :a)
-        (advance :a))
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a))
 
-    ;; FAIL
-    (-> e
-        (advance :a)
-        (advance :a)
-        (advance :a)
-        (advance :a))
-
-
-    ;; F
-    (def f (automata [(bound :a 1 2) :b :c :d]))
-
-    (advance f :a)
-
-    (-> f
-        (advance :a)
-        (advance :a))
-
-    (-> f
-        (advance :a)
-        (advance :a)
-        (advance :b))
-
-    ;; FAIL
-    (-> f
-        (advance :a)
-        (advance :a)
-        (advance :a))
+  ;; FAIL
+  (-> e
+      (advance :a)
+      (advance :a)
+      (advance :a)
+      (advance :a))
 
 
-    ;; FF
-    (def ff (automata [(bound :a 0 1) :b :c :d]))
+  ;; F
+  (def f (automata [(bound :a 1 2) :b :c :d]))
 
-    (advance ff :a)
-    (advance ff :b)
+  (advance f :a)
 
-    ;; FAIL
-    (-> ff
-        (advance :a)
-        (advance :a))
+  (-> f
+      (advance :a)
+      (advance :a))
+
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :b))
+
+  ;; FAIL
+  (-> f
+      (advance :a)
+      (advance :a)
+      (advance :a))
+
+
+  ;; FF
+  (def ff (automata [(bound :a 0 1) :b :c :d]))
+
+  (advance ff :a)
+  (advance ff :b)
+
+  ;; FAIL
+  (-> ff
+      (advance :a)
+      (advance :a))
 
 
   ;;; FFF
-    (def fff (automata [(? :a) :b :c :d]))
+  (def fff (automata [(? :a) :b :c :d]))
 
-    (advance fff :a)
-    (advance fff :b)
+  (advance fff :a)
+  (advance fff :b)
 
-    ;; FAIL
-    (-> fff
-        (advance :a)
-        (advance :a))))
+  ;; FAIL
+  (-> fff
+      (advance :a)
+      (advance :a)))
 
 (comment ;; OR
 
@@ -487,8 +619,8 @@
 
   (def one (automata [(* [:a :b]) :c])) ;; combinator / automata
 
-  ;; one
   (advance one :a)
+  (advance one :c) ;; TODO, should FAIL
 
   (-> one
       (advance :a)
@@ -502,8 +634,9 @@
   (-> one
       (advance :a)
       (advance :b)
-      (advance :))
-  (-> oneDO
+      (advance :a))
+
+  (-> one
       (advance :a)
       (advance :b)
       (advance :a)
@@ -516,9 +649,9 @@
       (advance :b)
       (advance :c)))
 
-;; TODO NESTING PLUS
-;; TODO NESTING BOUND
 ;; TODO NESTING OR
+
+
 
 (comment ;; NESTING
 
