@@ -5,8 +5,8 @@
             [com.rpl.specter :refer :all]))
 
 
-(declare parser-combinator?)
 (declare automata?)
+(declare parser-combinator?)
 (declare complete?)
 
 (defn position->state [a position]
@@ -225,71 +225,50 @@
           automata-this? (automata? this-state)
           complete-this? (complete? this-state)
           automata-next? (automata? next-state)
-          complete-next? (complete? next-state)]
+          complete-next? (complete? next-state)
 
-      (m/match [automata-this? complete-this? automata-next? complete-next?]
+          {:keys [isautomata? iscomplete? state position location]}
+          (cond
+            automata-this? {:isautomata? automata-this?
+                            :iscomplete? complete-this?
+                            :state this-state
+                            :position this-position
+                            :location :this}
+            automata-next? {:isautomata? automata-next?
+                            :iscomplete? complete-next?
+                            :state next-state
+                            :position next-position
+                            :location :next}
+            :else {:isautomata? false
+                   :iscomplete? complete-this?
+                   :state nil
+                   :position nil
+                   :location nil})
 
-               [true false _ _] (as-> input i
-                                  (transition this-state this-state i)
-                                  (automaton->with-updated-node this-position i automaton-error-free))
+          peeked-node-equals? (= input (peek-next-state automaton-error-free))
 
-               [_ _ true false] (as-> input i
-                                  (transition next-state next-state i)
-                                  (automaton->with-updated-node next-position i automaton-error-free))
+          lhs (-> automaton :matcher
+                  (nth (:position automaton))
+                  (#(when (automata? %)
+                      (-> % :matcher (dissoc :position :history :error)))))
+          rhs (-> automaton :history last last :matcher
+                  (nth (:position automaton))
+                  (#(when (automata? %)
+                      (-> % :matcher (dissoc :position :history :error)))))
 
-               [_ _ _ true] (transition-local :plus automaton-error-free input))))
+          processed-at-least-once? (= lhs rhs)]
 
-  #_(transition [_ automaton input]
+      ;; (trace [location [peeked-node-equals? processed-at-least-once?] isautomata? iscomplete?])
+      (m/match [location
+                (clojure.core/and peeked-node-equals? processed-at-least-once?)
+                isautomata?
+                iscomplete?]
 
-      (let [automaton-error-free (dissoc automaton :error)]
+               [_ false true false] (as-> input i
+                                      (transition state state i)
+                                      (automaton->with-updated-node position i automaton-error-free))
 
-        (cond
-
-          (= input (peek-next-state automaton-error-free))
-          (transition-common :next automaton-error-free input)
-
-          (= input (->state automaton-error-free))
-          (transition-common :this automaton-error-free input)
-
-          :else (transition-error :invalid-transition automaton-error-free input)))))
-
-(comment ;; NESTING PLUS
-
-  (def zero (automata [(+ [:a :b]) :c])) ;; combinator / automata
-
-  (advance zero :a)
-
-  (advance zero :c) ;; TODO should FAIL
-
-  (-> zero
-      (advance :a)
-      (advance :b))
-
-  ;; FIX
-  (-> zero
-      (advance :a)
-      (advance :b)
-      (advance :c))
-
-  (-> zero
-      (advance :a)
-      (advance :b)
-      (advance :a))
-
-  (-> zero
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b))
-
-  ;; FIX
-  (-> zero
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)
-
-      (advance :c)))
+               [_ _ _ _] (transition-local :plus automaton-error-free input)))))
 
 (defrecord Star [matcher]
 
@@ -427,8 +406,9 @@
                [_ _ _] :WTF))))
 
 
-(def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
 (def automata? (partial instance? automata.refactor.Automata))
+(def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
+(def plus? (partial instance? automata.refactor.Plus))
 
 ;; ParserCombinator
 ;;   disambiguate between i. the matcher and ii. current state
@@ -484,6 +464,9 @@
 
 
 (comment ;; SCALAR, STAR, PLUS
+
+  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
+
 
   ;; A
   (def a (automata [:a :b :c :d]))
@@ -649,14 +632,46 @@
       (advance :b)
       (advance :c)))
 
-;; TODO NESTING OR
+(comment ;; NESTING PLUS
 
+  (def zero (automata [(+ [:a :b]) :c])) ;; combinator / automata
+
+  (advance zero :a)
+  (advance zero :c) ;; should be a nested fail, in case there's a nested :c as well
+
+  (-> zero
+      (advance :a)
+      (advance :b))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :c))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b))
+
+  (-> zero
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+
+      (advance :c)))
+
+;; TODO NESTING OR
+;; TODO NESTING BOUND
 
 
 (comment ;; NESTING
-
-  (automata (* (or :a :b :c))) ;; FAIL we have to start with an automata
-
 
   (do
     (automata [(* (+ [:a :b :c]))])
