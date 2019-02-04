@@ -209,6 +209,36 @@
         (transition-common :next automaton-error-free input)
         (transition-error :invalid-transition automaton-error-free input)))))
 
+(defn extract-coordinates [automaton]
+
+  (let [next-position (-> automaton :position inc)
+        next-state (peek-next-state automaton)
+
+        this-position (-> automaton :position)
+        this-state (->state automaton)
+
+        automata-this? (automata? this-state)
+        complete-this? (complete? this-state)
+        automata-next? (automata? next-state)
+        complete-next? (complete? next-state)]
+
+    (cond
+      automata-this? {:isautomata? automata-this?
+                      :iscomplete? complete-this?
+                      :state this-state
+                      :position this-position
+                      :location :this}
+      automata-next? {:isautomata? automata-next?
+                      :iscomplete? complete-next?
+                      :state next-state
+                      :position next-position
+                      :location :next}
+      :else {:isautomata? false
+             :iscomplete? complete-this?
+             :state nil
+             :position nil
+             :location nil})))
+
 (defrecord Plus [matcher]
 
   ParserCombinator
@@ -216,34 +246,9 @@
   (transition [this automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          next-position (-> automaton :position inc)
-          next-state (peek-next-state automaton-error-free)
 
-          this-position (-> automaton :position)
-          this-state (->state automaton-error-free)
-
-          automata-this? (automata? this-state)
-          complete-this? (complete? this-state)
-          automata-next? (automata? next-state)
-          complete-next? (complete? next-state)
-
-          {:keys [isautomata? iscomplete? state position location]}
-          (cond
-            automata-this? {:isautomata? automata-this?
-                            :iscomplete? complete-this?
-                            :state this-state
-                            :position this-position
-                            :location :this}
-            automata-next? {:isautomata? automata-next?
-                            :iscomplete? complete-next?
-                            :state next-state
-                            :position next-position
-                            :location :next}
-            :else {:isautomata? false
-                   :iscomplete? complete-this?
-                   :state nil
-                   :position nil
-                   :location nil})
+          {:keys [isautomata? iscomplete?
+                  state position location]} (extract-coordinates automaton-error-free)
 
           peeked-node-equals? (= input (peek-next-state automaton-error-free))
 
@@ -309,57 +314,29 @@
   (transition [_ automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          next-position (-> automaton :position inc)
-          next-state (peek-next-state automaton-error-free)
 
-          this-position (-> automaton :position)
-          this-state (->state automaton-error-free)
+          {:keys [isautomata? iscomplete?
+                  state position location]} (extract-coordinates automaton-error-free)
 
-          automata-this? (automata? this-state)
-          complete-this? (complete? this-state)
-          automata-next? (automata? next-state)
-          complete-next? (complete? next-state)]
+          ;; next-position (-> automaton :position inc)
+          ;; next-state (peek-next-state automaton-error-free)
+          ;;
+          ;; this-position (-> automaton :position)
+          ;; this-state (->state automaton-error-free)
+          ;;
+          ;; automata-this? (automata? this-state)
+          ;; complete-this? (complete? this-state)
+          ;; automata-next? (automata? next-state)
+          ;; complete-next? (complete? next-state)
+          ]
 
-      (m/match [automata-this? complete-this? automata-next? complete-next?]
+      (m/match [isautomata? iscomplete?]
 
-               [true false _ _] (as-> input i
-                                  (transition this-state this-state i)
-                                  (automaton->with-updated-node this-position i automaton-error-free))
+               [true false] (as-> input i
+                                (transition state state i)
+                                (automaton->with-updated-node position i automaton-error-free))
 
-               [_ _ true false] (as-> input i
-                                  (transition next-state next-state i)
-                                  (automaton->with-updated-node next-position i automaton-error-free))
-
-               [_ _ _ true] (transition-local :bound (assoc automaton-error-free :x x :y y) input)))))
-
-(comment ;; NESTING BOUND
-
-  (def two (automata [(bound [:a :b] 2 3) :c :d]))
-
-  (advance two :a)
-  (advance two :c) ;; TODO should FAIL
-
-  (-> two
-      (advance :a)
-      (advance :b)) ;; NOT YET
-
-  (-> two
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)) ;; GOOD
-
-  ;; TODO
-  (-> two
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)
-      (advance :a)
-      (advance :b)
-
-      (advance :a)) ;; FAIL
-  )
+               [_ true] (transition-local :bound (assoc automaton-error-free :x x :y y) input)))))
 
 (defrecord Or [matcher]
 
@@ -368,17 +345,46 @@
   (transition [_ automaton input]
 
     (let [automaton-error-free (dissoc automaton :error)
-          next-state (peek-next-state automaton-error-free)]
 
-      (if (clojure.core/and
-            (set? next-state)
-            (some (->> next-state
-                       (map :matcher)
-                       (into #{}))
-                  [input]))
+          next-state (peek-next-state automaton-error-free)
 
-        (transition-common :next automaton-error-free input)
-        (transition-error :invalid-transition automaton-error-free input)))))
+          {a true b false} (->> automaton-error-free peek-next-state (group-by automata?))
+
+          automata-input-sets (->> a
+                                   (map :matcher)
+                                   (map (fn [b]
+                                          (remove #(some #{:START :END}
+                                                         #{(:matcher %)})
+                                                  b))))
+
+          automata-input-scalars (map (fn [a] (map :matcher a)) automata-input-sets)
+
+          automata-input-values (map #(some (into #{} %) #{input}) automata-input-scalars)
+
+          an-automata-has-input? (->> automata-input-values
+                                      (some identity)
+                                      ((comp clojure.core/not nil?)))
+
+          a-scalar-has-input? ((comp clojure.core/not nil?)
+                               (some (->> b
+                                          (into #{})
+                                          (map :matcher)
+                                          (into #{}))
+                                     [input]))]
+
+      (trace [an-automata-has-input? a-scalar-has-input?])
+      (m/match [an-automata-has-input? a-scalar-has-input?]
+
+               [true _] :foobar
+               [false true] (transition-common :next automaton-error-free input)
+               [false false] (transition-error :invalid-transition automaton-error-free input)))))
+
+(comment ;; NESTING OR
+
+  (or [:a :b] [:a :c])
+  (def three (automata [(or [:a :b] [:x :y] :c) :d]))
+
+  )
 
 (defrecord Automata [matcher]
 
@@ -450,10 +456,14 @@
                                                            :history []))
                                       (list? v) (eval v)
                                       :else v))
-        walker-set #(if (set? %)
-                      (->> (map scalar %)
-                           (into #{}))
-                      %)]
+        walker-set (fn [a]
+                     (if (set? a)
+                       (->> a
+                            (map #(if ((comp clojure.core/not automata?) %)
+                                    (scalar %)
+                                    %))
+                            (into #{}))
+                       a))]
 
     (->> states
          (clojure.walk/postwalk walker-vector-list-scalar)
@@ -667,8 +677,35 @@
 
       (advance :c)))
 
-;; TODO NESTING OR
-;; TODO NESTING BOUND
+(comment ;; NESTING BOUND
+
+  (def two (automata [(bound [:a :b] 2 3) :c :d]))
+
+  (advance two :a)
+  (advance two :c)
+
+  (-> two
+      (advance :a)
+      (advance :b)) ;; TODO NOT YET
+
+  (-> two
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)) ;; GOOD
+
+  ;; TODO
+  (-> two
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+      (advance :a)
+      (advance :b)
+
+      (advance :a)) ;; TODO FAIL
+  )
+
 
 
 (comment ;; NESTING
