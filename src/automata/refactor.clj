@@ -330,6 +330,7 @@
           ;; complete-next? (complete? next-state)
           ]
 
+      (trace [isautomata? iscomplete?])
       (m/match [isautomata? iscomplete?]
 
                [true false] (as-> input i
@@ -346,20 +347,18 @@
 
     (let [automaton-error-free (dissoc automaton :error)
 
-          next-state (peek-next-state automaton-error-free)
-
           {a true b false} (->> automaton-error-free peek-next-state (group-by automata?))
 
-          automata-input-sets (->> a
-                                   (map :matcher)
-                                   (map (fn [b]
-                                          (remove #(some #{:START :END}
-                                                         #{(:matcher %)})
-                                                  b))))
+          next-position (-> automaton-error-free :position inc)
 
-          automata-input-scalars (map (fn [a] (map :matcher a)) automata-input-sets)
-
-          automata-input-values (map #(some (into #{} %) #{input}) automata-input-scalars)
+          automata-input-values (->> a
+                                     (map :matcher)
+                                     (map (fn [b]
+                                            (remove #(some #{:START :END}
+                                                           #{(:matcher %)})
+                                                    b)))             ;; automata-input-sets
+                                     trace (map (fn [a] (map :matcher a)))  ;; automata-input-scalars
+                                     (map #(some (into #{} %) #{input})))
 
           an-automata-has-input? (->> automata-input-values
                                       (some identity)
@@ -370,12 +369,20 @@
                                           (into #{})
                                           (map :matcher)
                                           (into #{}))
-                                     [input]))]
+                                     [input]))
 
-      (trace [an-automata-has-input? a-scalar-has-input?])
+          foobar (fn [a input]
+                   (let [{position :position :as fst} (first a)
+                         {error :error :as result} (transition fst fst input)]
+
+                     (if (nil? error)
+                       (automaton->with-updated-node position result fst) ;; ** TODO dig deeper
+                       (recur (rest a) input))))]
+
+      ;; (trace [an-automata-has-input? a-scalar-has-input? [a next-position input]])
       (m/match [an-automata-has-input? a-scalar-has-input?]
 
-               [true _] :foobar
+               [true _] (foobar a input)
                [false true] (transition-common :next automaton-error-free input)
                [false false] (transition-error :invalid-transition automaton-error-free input)))))
 
@@ -384,6 +391,7 @@
   (or [:a :b] [:a :c])
   (def three (automata [(or [:a :b] [:x :y] :c) :d]))
 
+  (advance three :c)
   )
 
 (defrecord Automata [matcher]
@@ -810,3 +818,76 @@
 ;;  #automata.refactor.Scalar{:matcher :END}],
 ;; :position 0,
 ;; :history []}
+
+;; Within 10 tick increments
+(+ (or :a :b :c))
+
+
+
+(comment
+
+  ;; TODO these guys can all nest each other
+  ;; Star, Plus, Bound, Or, Automata
+
+  ;; - Star, Plus -> Bound special cases
+
+  ;; - check does input match THIS node
+  ;; - check does input match NEXT node
+  ;; - check does input match N 'th node (only for Star)
+
+  ;; - traverse down to element (if incomplete)
+  ;; - present results to parent (complete or not)
+
+  (def checka (automata [(or :a :b :c) (or :d :e :f)]))
+
+  (-> checka
+      (advance :b)
+      (advance :e))
+
+  (-> checka
+      (advance :b)
+      (advance :c)) ;; FAIL
+
+
+
+
+  (def buy-signals
+    (automata [:exponential-ma-has-crossed-below
+               :macd-troughs
+               (bound (or :rsi :bollinger-band-squeeze :bollinger-band-price-outside) 2 3)]))
+
+
+
+
+  ;; OK
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs))
+
+  ;; ... TODO
+  (def a (-> buy-signals
+             (advance :exponential-ma-has-crossed-below)
+             (advance :macd-troughs)))
+
+  (advance a :rsi)
+
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs)
+      (advance :rsi))
+
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs)
+      (advance :rsi)
+      (advance :bollinger-band-squeeze))
+
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs)
+      (advance :rsi)
+      (advance :bollinger-band-squeeze)
+      (advance :bollinger-band-price-outside)
+
+      ;; should FAIL here
+      (advance :rsi)))
