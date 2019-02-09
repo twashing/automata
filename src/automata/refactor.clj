@@ -6,6 +6,7 @@
 
 
 (declare automata?)
+(declare scalar?)
 (declare parser-combinator?)
 (declare complete?)
 
@@ -162,6 +163,18 @@
 
              :else (transition-error :invalid-transition automaton-error-free input))))
 
+(defmethod transition-local :or [_ automaton-error-free input]
+
+  (let [next-state (peek-next-state automaton-error-free)
+        condition-set? (set? next-state)
+        condition-input-match? (some (->> next-state
+                                          (map :matcher)
+                                          (into #{}))
+                                     [input])]
+
+    (if (clojure.core/and condition-set? condition-input-match?)
+      (transition-common :next automaton-error-free input)
+      (transition-error :invalid-transition automaton-error-free input))))
 
 
 (defn conditionally-append-to-history [node automaton-updated]
@@ -202,12 +215,22 @@
   (transition [_ automaton input]))
 
 (defrecord Scalar [matcher]
+
   ParserCombinator
+
   (transition [_ automaton input]
-    (let [automaton-error-free (dissoc automaton :error)]
-      (if (= input (peek-next-state automaton-error-free))
-        (transition-common :next automaton-error-free input)
-        (transition-error :invalid-transition automaton-error-free input)))))
+
+    (let [automaton-error-free (dissoc automaton :error)
+          next-matcher (peek-next-matcher automaton-error-free)
+          next-state (peek-next-state automaton-error-free)]
+
+      (cond
+
+        (scalar? next-matcher) (if (= input (peek-next-state automaton-error-free))
+                                 (transition-common :next automaton-error-free input)
+                                 (transition-error :invalid-transition automaton-error-free input))
+
+        :else (transition next-matcher automaton-error-free input)))))
 
 (defrecord Plus [matcher]
 
@@ -258,7 +281,6 @@
 
           processed-at-least-once? (= lhs rhs)]
 
-      ;; (trace [location [peeked-node-equals? processed-at-least-once?] isautomata? iscomplete?])
       (m/match [location
                 (clojure.core/and peeked-node-equals? processed-at-least-once?)
                 isautomata?
@@ -366,19 +388,8 @@
   ParserCombinator
 
   (transition [_ automaton input]
-
-    (let [automaton-error-free (dissoc automaton :error)
-          next-state (peek-next-state automaton-error-free)]
-
-      (if (clojure.core/and
-            (set? next-state)
-            (some (->> next-state
-                       (map :matcher)
-                       (into #{}))
-                  [input]))
-
-        (transition-common :next automaton-error-free input)
-        (transition-error :invalid-transition automaton-error-free input)))))
+    (let [automaton-error-free (dissoc automaton :error)]
+      (transition-local :or automaton-error-free input))))
 
 (defrecord Automata [matcher]
 
@@ -407,6 +418,7 @@
 
 
 (def automata? (partial instance? automata.refactor.Automata))
+(def scalar? (partial instance? automata.refactor.Scalar))
 (def parser-combinator? (partial instance? automata.refactor.ParserCombinator))
 (def plus? (partial instance? automata.refactor.Plus))
 
@@ -731,6 +743,24 @@
   (bound (or :a :b :c) 2 3)
   (+ (or [:a :b] [:a :c])))
 
+(comment
+
+  (def buy-signals
+    (automata [:exponential-ma-has-crossed-below
+               :macd-troughs
+               (or :rsi :bollinger-band-squeeze :bollinger-band-price-outside)]))
+
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs)
+      (advance :bollinger-band-squeeze))
+
+  (-> buy-signals
+      (advance :exponential-ma-has-crossed-below)
+      (advance :macd-troughs)
+      (advance :rsi))
+
+  )
 
 ;; (use 'com.rpl.specter)
 ;;
