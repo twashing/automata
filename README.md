@@ -12,7 +12,7 @@ _This automaton consists of states (represented in the figure by circles) and tr
 
 ### NOTE
 
-Only `scalar` and `star` types are implemented. This is still pre-alpha software.
+Only `scalar`, `star` and `plus` combinators are implemented. This is still pre-alpha software.
 
 
 ## Usage
@@ -135,6 +135,9 @@ Multiple stars.
 
 
 ## TODO
+
+- grouping
+- variables
 
 - remaining combinators
 - cycle between a > b > a
