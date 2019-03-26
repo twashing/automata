@@ -103,6 +103,19 @@
 
 
 
+(defmulti condition-input-match?_fn (fn [next-state _] (type next-state)))
+
+(defmethod condition-input-match?_fn clojure.lang.PersistentHashSet [next-state input]
+  (->> next-state
+       (map :matcher)
+       (filter #(= % input))
+       ((comp clojure.core/not empty?) )))
+
+(defmethod condition-input-match?_fn clojure.lang.Keyword [next-state input]
+  (= next-state input))
+
+
+
 (defmulti transition-local (fn [dispatch _ _] dispatch))
 
 (defmethod transition-local :plus [_ automaton-error-free input]
@@ -166,13 +179,9 @@
 (defmethod transition-local :or [_ automaton-error-free input]
 
   (let [next-state (peek-next-state automaton-error-free)
-        condition-set? (set? next-state)
-        condition-input-match? (some (->> next-state
-                                          (map :matcher)
-                                          (into #{}))
-                                     [input])]
+        condition-input-match? (condition-input-match?_fn next-state input)]
 
-    (if (clojure.core/and condition-set? condition-input-match?)
+    (if condition-input-match?
       (transition-common :next automaton-error-free input)
       (transition-error :invalid-transition automaton-error-free input))))
 
@@ -602,6 +611,9 @@
 
   (advance g :z)
   (advance g :c)
+  (-> g
+      (advance :z)
+      (advance :b))
 
   (-> g
       (advance :z)
